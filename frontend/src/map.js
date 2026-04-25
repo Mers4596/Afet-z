@@ -45,6 +45,12 @@ let map = null;
 let heatLayer = null;
 let markerGroup = null;
 
+// Aktif görünüm modu: 'points' | 'heat'
+let mapMode = 'points';
+
+// Son veri — mod değişince yeniden render için saklanır
+let _lastTweets = [];
+
 /**
  * Haritayı başlat
  * @returns {{ map: L.Map }}
@@ -79,7 +85,66 @@ export function initMap() {
     // Türkiye GeoJSON sınırları
     loadTurkeyBorders();
 
+    // Harita mod kontrol butonu (sağ üst köşe)
+    _addModeControl();
+
     return { map };
+}
+
+/** Harita köşesine mod geçiş kontrolü ekle */
+function _addModeControl() {
+    const MapModeControl = L.Control.extend({
+        options: { position: 'topright' },
+
+        onAdd() {
+            const container = L.DomUtil.create('div', 'map-mode-control leaflet-bar');
+            container.innerHTML = `
+                <button class="map-mode-btn active" data-mode="points" title="Noktasal görünüm">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+                    </svg>
+                    Noktasal
+                </button>
+                <button class="map-mode-btn" data-mode="heat" title="Isı haritası görünümü">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M13.5 0.67s.74 2.65.74 4.8c0 2.06-1.35 3.73-3.41 3.73-2.07 0-3.63-1.67-3.63-3.73l.03-.36C5.21 7.51 4 10.62 4 14c0 4.42 3.58 8 8 8s8-3.58 8-8C20 8.61 17.41 3.8 13.5.67zM11.71 19c-1.78 0-3.22-1.4-3.22-3.14 0-1.62 1.05-2.76 2.81-3.12 1.77-.36 3.6-1.21 4.62-2.58.39 1.29.59 2.65.59 4.04 0 2.65-2.15 4.8-4.8 4.8z"/>
+                    </svg>
+                    Isı Haritası
+                </button>
+            `;
+
+            // Leaflet click-propagation'ı durdur (harita sürüklenmesini engeller)
+            L.DomEvent.disableClickPropagation(container);
+            L.DomEvent.disableScrollPropagation(container);
+
+            container.querySelectorAll('.map-mode-btn').forEach(btn => {
+                L.DomEvent.on(btn, 'click', () => {
+                    if (btn.dataset.mode === mapMode) return;
+                    mapMode = btn.dataset.mode;
+                    container.querySelectorAll('.map-mode-btn')
+                        .forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    _applyMode();
+                });
+            });
+
+            return container;
+        },
+    });
+
+    new MapModeControl().addTo(map);
+}
+
+/** Mevcut moda göre katmanları göster/gizle */
+function _applyMode() {
+    if (!map) return;
+    if (mapMode === 'points') {
+        if (!map.hasLayer(markerGroup)) markerGroup.addTo(map);
+        if (heatLayer && map.hasLayer(heatLayer)) map.removeLayer(heatLayer);
+    } else {
+        if (map.hasLayer(markerGroup)) map.removeLayer(markerGroup);
+        if (heatLayer && !map.hasLayer(heatLayer)) heatLayer.addTo(map);
+    }
 }
 
 /** Türkiye il sınırlarını yükle */
@@ -123,7 +188,13 @@ function getCityCoords(city) {
  */
 export function updateMapWithResults(analyzedTweets) {
     if (!map) return;
+    _lastTweets = analyzedTweets;
+    _rebuildLayers(analyzedTweets);
+    _applyMode();
+}
 
+/** Veriyi işleyerek ısı + marker katmanlarını sıfırdan oluştur */
+function _rebuildLayers(analyzedTweets) {
     const heatPoints = [];
     markerGroup.clearLayers();
 
@@ -181,24 +252,24 @@ export function updateMapWithResults(analyzedTweets) {
         markerGroup.addLayer(marker);
     });
 
-    // Isı katmanını güncelle
-    if (heatLayer) {
+    // Isı katmanını güncelle (haritadan kaldırılmış olsa bile verisi taze olsun)
+    if (heatLayer && map.hasLayer(heatLayer)) {
         map.removeLayer(heatLayer);
     }
     heatLayer = L.heatLayer(heatPoints, {
-        radius: 22,
-        blur: 16,
+        radius: 28,
+        blur: 20,
         maxZoom: 12,
-        minOpacity: 0.4,
+        minOpacity: 0.45,
         gradient: {
             0.2: '#10b981',
             0.4: '#facc15',
             0.6: '#f97316',
             0.8: '#ef4444',
-            1.0: '#dc2626',
+            1.0: '#7f1d1d',
         },
     });
-    heatLayer.addTo(map);
+    // _applyMode() çağırıncaya kadar haritaya ekleme
 }
 
 const NEED_TYPE_LABELS = {

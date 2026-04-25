@@ -736,7 +736,7 @@ body {
 
 .map-legend {
     position: absolute;
-    top: 12px;
+    bottom: 40px;   /* Leaflet attribution (~24px) üzerinde kalır */
     right: 12px;
     background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(8px);
@@ -1137,6 +1137,55 @@ body {
 ::-webkit-scrollbar-thumb {
     background: var(--accent-cyan);
     border-radius: 10px;
+}
+
+/* ── Harita Mod Kontrol Butonu ──────────────────────────── */
+.map-mode-control {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: rgba(15, 23, 42, 0.92);
+    border: 1px solid rgba(56, 189, 248, 0.25) !important;
+    border-radius: 10px !important;
+    overflow: hidden;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+    backdrop-filter: blur(8px);
+}
+
+.map-mode-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 13px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #94a3b8;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    white-space: nowrap;
+    letter-spacing: 0.3px;
+}
+
+.map-mode-btn:hover {
+    background: rgba(56, 189, 248, 0.1);
+    color: #e2e8f0;
+}
+
+.map-mode-btn.active {
+    background: rgba(56, 189, 248, 0.18);
+    color: #38bdf8;
+}
+
+.map-mode-btn svg {
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.map-mode-btn.active svg {
+    opacity: 1;
 }
 
 /* ── Responsive ─────────────────────────────────────────── */
