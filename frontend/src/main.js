@@ -17,6 +17,36 @@ let rateLimit = { requests_this_minute: 0, requests_today: 0, max_rpm: 15, max_r
 let isLoading = false;
 let pollTimer = null;
 let sahtelikAnalizi = false;   // Sahtelik Analizi toggle state
+let authCache = {};            // {tweet_id: AuthenticityResult} — localStorage'da kalıcı
+
+// ── LocalStorage ──────────────────────────────────────────
+const LS_TOGGLE = 'afetiz_sahtelik';
+const LS_AUTH = 'afetiz_auth_cache';
+
+function loadPersistedState() {
+    try {
+        sahtelikAnalizi = localStorage.getItem(LS_TOGGLE) === 'true';
+        const raw = localStorage.getItem(LS_AUTH);
+        if (raw) authCache = JSON.parse(raw);
+    } catch (_) { /* localStorage erişilemez */ }
+}
+
+function persistToggle() {
+    try { localStorage.setItem(LS_TOGGLE, sahtelikAnalizi); } catch (_) {}
+}
+
+function persistAuthCache() {
+    try {
+        // Önbelleği 200 giriş ile sınırla (eski girişleri at)
+        const keys = Object.keys(authCache);
+        if (keys.length > 200) {
+            const trimmed = {};
+            keys.slice(-200).forEach(k => { trimmed[k] = authCache[k]; });
+            authCache = trimmed;
+        }
+        localStorage.setItem(LS_AUTH, JSON.stringify(authCache));
+    } catch (_) {}
+}
 
 // ── DOM Render ─────────────────────────────────────────────
 function renderApp() {
@@ -218,7 +248,11 @@ function updateRateLimitBadge() {
 async function loadResults() {
     try {
         const data = await fetchResults();
-        analyzedTweets = data.tweets || [];
+        // Backend authenticity döndürmez — cache'den merge et
+        analyzedTweets = (data.tweets || []).map(t => ({
+            ...t,
+            authenticity: t.authenticity ?? authCache[t.tweet_id] ?? null,
+        }));
         updateAll();
     } catch (e) {
         console.warn('Sonuçlar yüklenemedi:', e.message);
@@ -292,6 +326,7 @@ function setupEventHandlers() {
     const badgeEl = document.getElementById('toggleStateBadge');
     toggleEl?.addEventListener('change', () => {
         sahtelikAnalizi = toggleEl.checked;
+        persistToggle();
         if (badgeEl) {
             badgeEl.textContent = sahtelikAnalizi ? 'A\u00c7IK' : 'KAPALI';
             badgeEl.className = `toggle-state-badge${sahtelikAnalizi ? ' active' : ''}`;
@@ -315,6 +350,11 @@ function setupEventHandlers() {
         setButtonLoading(btnMock, true);
         try {
             const result = await addMockTweet(text, sahtelikAnalizi);
+            // Authenticity'i cache'e kaydet
+            if (result.authenticity && result.tweet_id) {
+                authCache[result.tweet_id] = result.authenticity;
+                persistAuthCache();
+            }
             analyzedTweets.unshift(result);
             mockInput.value = '';
             updateAll();
@@ -395,12 +435,25 @@ function showToast(message, type = 'info') {
     }, 3500);
 }
 
+// ── Toggle UI'ı kayıtlı state'e göre ayarla ──────────────
+function restoreToggleUI() {
+    const toggleEl = document.getElementById('toggleAuthenticity');
+    const badgeEl = document.getElementById('toggleStateBadge');
+    if (toggleEl) toggleEl.checked = sahtelikAnalizi;
+    if (badgeEl) {
+        badgeEl.textContent = sahtelikAnalizi ? 'A\u00c7IK' : 'KAPALI';
+        badgeEl.className = `toggle-state-badge${sahtelikAnalizi ? ' active' : ''}`;
+    }
+}
+
 // ── Başlat ─────────────────────────────────────────────────
 async function init() {
+    loadPersistedState();   // localStorage'dan state'i yükle
     renderApp();
     initMap();
     await initCharts();
     setupEventHandlers();
+    restoreToggleUI();      // Checkbox'ı kayıtlı state'e ayarla
 
     // İlk veri yükleme
     await Promise.all([loadResults(), loadTweets(), loadRateLimit()]);
