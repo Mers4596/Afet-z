@@ -133,3 +133,88 @@ class GeminiService:
     def get_rate_limit_status(self) -> dict:
         """Rate-limit durumunu döndür."""
         return self.rate_limiter.status()
+
+    def generate_crisis_report(self, stats: dict) -> str:
+        """
+        Yapılandırılmış istatistik verisinden kapsamlı kriz raporu üretir.
+        PDF dışa aktarımı için kullanılır.
+        """
+        import google.generativeai as genai
+
+        genai.configure(api_key=self.api_key)
+        report_model = genai.GenerativeModel(
+            model_name=self.model_name,
+            generation_config={
+                "temperature": 0.4,
+                "top_p": 0.95,
+                "max_output_tokens": 3000,
+            },
+        )
+
+        # Veriyi metin formatına çevir
+        city_lines = "\n".join(
+            f"  - {c['city']}: {c['count']} tweet, maks aciliyet {c['max_urgency']}/5, "
+            f"ihtiyaclar: {', '.join(c.get('top_needs', []))}"
+            for c in stats.get("city_breakdown", [])[:10]
+        )
+        need_lines = "\n".join(
+            f"  - {k}: {v} tweet"
+            for k, v in sorted(stats.get("need_frequencies", {}).items(), key=lambda x: -x[1])
+        )
+        critical_lines = "\n".join(
+            f"  [{t.get('map_priority','?').upper()}] {t.get('city','')} "
+            f"{t.get('district','')}{' / ' + t.get('street_address','') if t.get('street_address') else ''} "
+            f"— Aciliyet {t.get('urgency_score',0)}/5: {t.get('summary', t.get('text',''))[:100]}"
+            for t in stats.get("top_critical_tweets", [])[:10]
+        )
+
+        prompt = f"""Sen bir afet koordinasyon ve kriz yönetim uzmanısın.
+Aşağıda verilen sosyal medya tweet analiz verilerini inceleyerek kapsamlı bir kriz değerlendirmesi raporu hazırla.
+
+ÖZET VERİLER:
+- Analiz Tarihi: {stats.get('analysis_date', 'Bilinmiyor')}
+- Toplam Analiz Edilen Tweet: {stats.get('total_analyzed', 0)}
+- Kritik Alarm: {stats.get('critical_count', 0)}
+- Yüksek Öncelikli: {stats.get('high_count', 0)}
+- Orta Öncelikli: {stats.get('medium_count', 0)}
+- Etkilenen İl Sayısı: {stats.get('affected_cities', 0)}
+- Ortalama Güven Skoru: %{stats.get('trust_stats', {}).get('avg', 0)}
+
+İL BAZLI DAĞILIM:
+{city_lines or '  Veri yok'}
+
+İHTİYAÇ DAĞILIMI:
+{need_lines or '  Veri yok'}
+
+EN KRİTİK NOKTALAR:
+{critical_lines or '  Kritik kayit bulunamadi'}
+
+Aşağıdaki bölümleri içeren kapsamlı bir rapor yaz.
+Her bölümü ## ile başlat, profesyonel ve somut bir dil kullan:
+
+## YÖNETİCİ ÖZETİ
+Tüm durumun 3-4 paragrafta değerlendirmesi: kaç bölge etkilendi, en acil ihtiyaçlar, genel risk seviyesi.
+
+## BÖLGESEL RİSK ANALİZİ
+Her etkilenen il için tweet yoğunluğu ve aciliyet skorlarına göre ayrı değerlendirme ve öncelik sıralaması.
+
+## İHTİYAÇ HARİTALAMASI
+Her ihtiyaç türü için detaylı değerlendirme. Hangileri kritik seviyede? Kaynak tahsisi önerileri.
+
+## DOĞRULAMA VE GÜVENİLİRLİK
+Verinin güvenilirliği, doğrulanan bilgiler vs şüpheli içerikler, güven skoru analizi.
+
+## ACİL MÜDAHALE ÖNERİLERİ
+Öncelik sırasına göre en az 7 somut, uygulanabilir öneri. Her öneri için sorumlu kurum ve tahmini süre.
+
+## KRİTİK RİSK FAKTÖRLERİ VE UYARILAR
+Durumu daha da kötüleştirebilecek faktörler, gözden kaçmaması gereken riskler.
+
+Rapor Türkçe, profesyonel ve aksiyon odaklı olsun. Gereksiz tekrar yapma."""
+
+        try:
+            response = report_model.generate_content(prompt)
+            return response.text.strip()
+        except Exception as e:
+            logger.error("Kriz raporu üretme hatası: %s", e)
+            return f"Rapor üretilemedi: {e}"

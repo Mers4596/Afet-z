@@ -148,3 +148,44 @@ class RateLimitStatus(BaseModel):
     max_rpd: int
     remaining_rpm: int
     remaining_rpd: int
+
+
+# ─── PDF/Excel Dışa Aktarım ──────────────────────────────
+class CityBreakdown(BaseModel):
+    city: str
+    count: int
+    max_urgency: int = 0
+    top_needs: list[str] = []
+
+
+class TrustStats(BaseModel):
+    avg: float = 0.0
+    total_trusted_sources: int = 0
+
+
+class CriticalTweetSummary(BaseModel):
+    text: str = ""
+    city: str = ""
+    district: str = ""
+    neighborhood: str = ""
+    street_address: str = ""
+    has_precise_location: bool = False
+    need_types: list[str] = []
+    urgency_score: int = 0
+    summary: str = ""
+    map_priority: str = "medium"
+
+
+class CrisisReportRequest(BaseModel):
+    """Frontend'den gelen özet istatistikler — Gemini raporu için."""
+    total_analyzed: int
+    critical_count: int
+    high_count: int
+    medium_count: int = 0
+    low_count: int = 0
+    affected_cities: int
+    analysis_date: str = ""
+    city_breakdown: list[CityBreakdown] = []
+    need_frequencies: dict[str, int] = {}
+    top_critical_tweets: list[CriticalTweetSummary] = []
+    trust_stats: TrustStats = TrustStats()

@@ -7,6 +7,9 @@ Tweet'leri çeker, Gemini ile analiz eder, harita için JSON üretir.
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+import tempfile
+import os
 import uvicorn
 
 from app.config import (
@@ -29,6 +32,7 @@ from app.models import (
     AnalyzeRequest,
     RateLimitStatus,
     TrustedAccountRequest,
+    CrisisReportRequest,
 )
 from app.rate_limiter import RateLimiter
 from app.gemini_service import GeminiService
@@ -353,6 +357,87 @@ def remove_trusted_account(username: str):
     """Güvenilir hesabı sil."""
     db.remove_trusted_account(username)
     return {"success": True, "username": username}
+
+
+# ─── PDF Dışa Aktarım — Gemini Kriz Raporu ─────────────
+@app.post("/export/pdf-analysis")
+def export_pdf_analysis(req: CrisisReportRequest):
+    """
+    Frontend'den gelen özet istatistikleri Gemini ile analiz et,
+    PDF raporuna yerleştirilecek detaylı kriz raporu metnini döndür.
+    """
+    stats = req.model_dump()
+    report = gemini_service.generate_crisis_report(stats)
+    return {"report": report}
+
+
+# ─── PDF Tam Rapor (WeasyPrint) ──────────────────────────
+@app.get("/export/full-pdf-report")
+def export_full_pdf_report():
+    """
+    Veritabanındaki tüm analiz sonuçlarını alır, Gemini AI özeti ile
+    birleştirerek 5 sayfalık profesyonel PDF kriz raporu üretir.
+
+    Döndürülen dosya: afet_raporu.pdf (application/pdf)
+    """
+    try:
+        from report_generator import rapor_olustur
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Rapor motoru yüklenemedi: {exc}. "
+                   "WeasyPrint ve bağımlılıklarının kurulu olduğundan emin olun.",
+        )
+
+    # Tüm analiz sonuçlarını al
+    results = db.get_all_analyses()
+    city_counts = db.get_city_tweet_counts()
+
+    enriched: list[dict] = []
+    for t in results:
+        te = _enrich_with_trust(
+            t,
+            author_username=t.author.username if t.author else "",
+            city_counts=city_counts,
+        )
+        enriched.append(te.model_dump())
+
+    if not enriched:
+        raise HTTPException(
+            status_code=404,
+            detail="Rapor oluşturmak için önce tweetleri analiz edin (/analyze-all).",
+        )
+
+    # AI raporu oluştur (opsiyonel — hata verirse boş geç)
+    ai_text = ""
+    try:
+        ai_text = gemini_service.generate_crisis_report({"tweets": enriched})
+    except Exception:
+        pass
+
+    # Geçici PDF dosyası
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".pdf", prefix="afetiz_rapor_", delete=False
+    )
+    tmp.close()
+
+    try:
+        rapor_olustur(
+            data={"tweets": enriched},
+            output_path=tmp.name,
+            ai_rapor=ai_text,
+        )
+    except Exception as exc:
+        os.unlink(tmp.name)
+        raise HTTPException(status_code=500, detail=f"PDF üretilemedi: {exc}")
+
+    return FileResponse(
+        tmp.name,
+        media_type="application/pdf",
+        filename="afet_raporu.pdf",
+        headers={"Content-Disposition": 'attachment; filename="afet_raporu.pdf"'},
+        background=None,
+    )
 
 
 if __name__ == "__main__":

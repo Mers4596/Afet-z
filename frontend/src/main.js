@@ -9,6 +9,7 @@ import './style.css';
 import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes, fetchTrustedAccounts, addTrustedAccount, removeTrustedAccount, fetchRegionRisk } from './api.js';
 import { initMap, updateMapWithResults, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
 import { initCharts, updateCharts } from './charts.js';
+import { exportToExcel, exportToPDF } from './export.js';
 
 // ── State ──────────────────────────────────────────────────
 let analyzedTweets = [];
@@ -104,6 +105,13 @@ function renderApp() {
             <button class="btn btn--trusted" id="btnTrustedAccounts" title="Güvenilir hesapları yönet">
                 <i class="fas fa-shield-halved"></i> Güvenilir Hesaplar
             </button>
+            <div class="toolbar-separator"></div>
+            <button class="btn btn--export" id="btnExportExcel" title="Verileri Excel olarak indir">
+                <i class="fas fa-file-excel"></i> Excel
+            </button>
+            <button class="btn btn--export btn--export-pdf" id="btnExportPDF" title="Harita, grafikler ve AI analizi ile PDF raporu oluştur">
+                <i class="fas fa-file-pdf"></i> PDF Raporu
+            </button>
         </div>
 
         <!-- Ana Alan: Harita + Sağ Panel -->
@@ -172,6 +180,14 @@ function renderApp() {
     </div>
 
     <div class="toast-container" id="toastContainer"></div>
+
+    <!-- PDF İşlem Overlay -->
+    <div class="export-overlay hidden" id="exportOverlay">
+        <div class="export-spinner-box">
+            <div class="export-spinner"></div>
+            <div class="export-progress-text" id="exportProgressText">Hazırlanıyor...</div>
+        </div>
+    </div>
 
     <!-- Güvenilir Hesaplar Modalı -->
     <div class="modal-overlay hidden" id="trustedModal">
@@ -541,6 +557,38 @@ function setupEventHandlers() {
 
     document.getElementById('trustedUsernameInput')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') document.getElementById('btnAddTrusted')?.click();
+    });
+
+    // Excel Dışa Aktar
+    document.getElementById('btnExportExcel')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btnExportExcel');
+        setButtonLoading(btn, true);
+        try {
+            await exportToExcel(analyzedTweets);
+            showToast('Excel dosyası indirildi', 'success');
+        } catch (e) {
+            showToast(`Excel hatası: ${e.message}`, 'error');
+        }
+        setButtonLoading(btn, false);
+    });
+
+    // PDF Raporu Dışa Aktar
+    document.getElementById('btnExportPDF')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btnExportPDF');
+        const overlay = document.getElementById('exportOverlay');
+        const progressText = document.getElementById('exportProgressText');
+        setButtonLoading(btn, true);
+        overlay?.classList.remove('hidden');
+        try {
+            await exportToPDF(analyzedTweets, (msg) => {
+                if (progressText) progressText.textContent = msg || 'Tamamlandı...';
+            });
+            showToast('PDF raporu indirildi', 'success');
+        } catch (e) {
+            showToast(`PDF hatası: ${e.message}`, 'error');
+        }
+        overlay?.classList.add('hidden');
+        setButtonLoading(btn, false);
     });
 }
 

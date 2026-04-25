@@ -111,3 +111,26 @@ export function removeTrustedAccount(username) {
         method: 'DELETE',
     });
 }
+
+/** PDF raporu için Gemini kriz analizi iste */
+export function fetchCrisisReport(stats) {
+    return apiFetch('/export/pdf-analysis', {
+        method: 'POST',
+        body: JSON.stringify(stats),
+    });
+}
+
+/**
+ * WeasyPrint tabanlı 5 sayfalık kriz raporunu indir.
+ * Blob olarak döner; çağıran taraf <a download> ile tetikler.
+ */
+export async function downloadFullPdfReport() {
+    const res = await fetch(`${API_BASE}/export/full-pdf-report`, {
+        headers: { Accept: 'application/pdf' },
+    });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `PDF raporu alınamadı: ${res.status}`);
+    }
+    return res.blob();
+}
