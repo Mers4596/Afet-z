@@ -50,14 +50,23 @@ let markerGroup = null;
  * @returns {{ map: L.Map }}
  */
 export function initMap() {
+    // Türkiye sınırları (SouthWest, NorthEast)
+    const southWest = L.latLng(35.0, 25.0);
+    const northEast = L.latLng(43.0, 46.0);
+    const bounds = L.latLngBounds(southWest, northEast);
+
     map = L.map('map', {
         zoomControl: true,
-        attributionControl: false,
+        attributionControl: true,
+        maxBounds: bounds,
+        maxBoundsViscosity: 1.0,
+        minZoom: 5,
     }).setView(MAP_CENTER, MAP_ZOOM);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; CartoDB, OSM',
-        subdomains: 'abcd',
+    // Google Hybrid Tiles (Satellite + Road + Terrain)
+    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Maps',
+        maxZoom: 20,
     }).addTo(map);
 
     // Isı katmanı
@@ -81,10 +90,10 @@ function loadTurkeyBorders() {
         .then(data => {
             L.geoJSON(data, {
                 style: {
-                    color: '#38bdf8',
-                    weight: 1.2,
-                    fillColor: '#0f172a',
-                    fillOpacity: 0.2,
+                    color: '#ffffff',
+                    weight: 0.8,
+                    fillColor: 'transparent',
+                    fillOpacity: 0,
                 },
                 onEachFeature: (feature, layer) => {
                     if (feature.properties?.name) {
