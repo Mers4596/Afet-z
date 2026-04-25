@@ -164,7 +164,9 @@ class TweetService:
             client = self._get_client()
 
             kwargs: dict = {
-                "query": "#afetiz lang:tr -is:retweet",
+                # lang:tr filtresi kaldırıldı — Twitter dil tespiti yanlış sınıflandırabilir
+                # ve bu durum diğer hesapların tweet'lerini gizler
+                "query": "#afetiz -is:retweet",
                 "max_results": max(10, self.max_results),
                 "expansions": ["author_id"],
                 "user_fields": ["created_at", "public_metrics", "username"],
@@ -215,7 +217,17 @@ class TweetService:
                     user_profile=user_profile,
                 )
                 new_tweets.append(tweet_data)
-                self._last_hashtag_id = str(t.id)
+
+            # since_id = EN YENİ tweet'in ID'si (response.data[0] — yeniden eskiye sıralı gelir)
+            # Böylece bir sonraki istekte sadece bundan YENİ tweet'ler istenir
+            if response.data:
+                self._last_hashtag_id = str(response.data[0].id)
+
+            logger.info(
+                "Hashtag fetch tamamlandı: %d yeni tweet geldi, since_id=%s",
+                len(new_tweets),
+                self._last_hashtag_id,
+            )
 
             # Önbelleğe ekle (tekrar yoksa)
             existing_ids = {td.tweet_id for td in self._hashtag_cache}
@@ -226,7 +238,17 @@ class TweetService:
             self._last_hashtag_fetch = now
 
         except Exception as e:
-            logger.error("Hashtag tweet çekme hatası: %s", e)
+            # Tweepy'nin TweepyException'unda HTTP response kodu erişilebilir
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            if status_code == 403:
+                logger.error(
+                    "Hashtag arama başarısız (HTTP 403 Forbidden): "
+                    "Twitter API Free tier'da search_recent_tweets çalışmaz. "
+                    "Basic ($100/ay) veya üzeri bir plan gereklidir. Hata: %s",
+                    e,
+                )
+            else:
+                logger.error("Hashtag tweet çekme hatası (HTTP %s): %s", status_code, e)
 
         return self._hashtag_cache
 

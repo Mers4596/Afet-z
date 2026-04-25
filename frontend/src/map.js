@@ -45,6 +45,28 @@ let map = null;
 let heatLayer = null;
 let markerGroup = null;
 
+/**
+ * tweet_id string'inden deterministik [-0.5, 0.5] aralığında iki sabit değer üretir.
+ * Aynı tweet_id her zaman aynı koordinat offsetini verir — harita yenilenince noktalar kaymaaz.
+ * @param {string} id
+ * @returns {{ dLat: number, dLng: number }}
+ */
+function deterministicOffset(id) {
+    let h1 = 0x9e3779b9, h2 = 0x6c62272e;
+    const s = String(id);
+    for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        h1 = Math.imul(h1 ^ c, 0x9e3779b9);
+        h2 = Math.imul(h2 ^ c, 0x517cc1b7);
+    }
+    h1 ^= h1 >>> 16;
+    h2 ^= h2 >>> 16;
+    return {
+        dLat: (((h1 >>> 0) % 10000) / 10000 - 0.5) * 0.10,
+        dLng: (((h2 >>> 0) % 10000) / 10000 - 0.5) * 0.14,
+    };
+}
+
 // Aktif görünüm modu: 'points' | 'heat'
 let mapMode = 'points';
 
@@ -202,11 +224,25 @@ function _rebuildLayers(analyzedTweets) {
         if (!tweet.analysis) return;
 
         const { city, district, urgency_score, map_priority, need_types, summary } = tweet.analysis;
-        const coords = getCityCoords(city);
+        const isPrecise = tweet.analysis?.has_precise_location === true;
 
-        // Rastgele küçük offset (aynı şehirdeki noktalar üst üste binmesin)
-        const lat = coords[0] + (Math.random() - 0.5) * 0.08;
-        const lng = coords[1] + (Math.random() - 0.5) * 0.08;
+        // Kesin konumlu tweet'ler: şehir merkezine sabitlenir (offset yok)
+        // Diğerleri: tweet_id tabanlı deterministik offset — yenileme/zoom'da kaymazlar
+        const coords = getCityCoords(city);
+        let lat, lng;
+        if (isPrecise) {
+            // Kesin adres varsa şehir merkezini kullan (GPS olmadığı için)
+            // İlçe adı ile küçük ama sabit ayırım sağla
+            const districtSeed = district ? String(city) + String(district) : String(city);
+            const off = deterministicOffset(districtSeed + '_precise');
+            lat = coords[0] + off.dLat * 0.3;  // kesin konumlar daha yakın kümelenir
+            lng = coords[1] + off.dLng * 0.3;
+        } else {
+            // tweet_id bazlı sabit offset
+            const off = deterministicOffset(String(tweet.tweet_id || tweet.id || city));
+            lat = coords[0] + off.dLat;
+            lng = coords[1] + off.dLng;
+        }
 
         // Isı noktası ekle
         const intensity = urgency_score / 5;
@@ -214,26 +250,37 @@ function _rebuildLayers(analyzedTweets) {
 
         // Marker ekle
         const color = PRIORITY_COLORS[map_priority] || PRIORITY_COLORS.medium;
-        // Kesin konumlu tweet'ler (sokak/bina) daha büyük ve farklı renkte gösterilir
-        // TODO: Kesin konuma tıklanınca 3D bina modellemesi açılacak (gelecek sprint)
-        const isPrecise = tweet.analysis?.has_precise_location === true;
         const markerColor = isPrecise ? '#c084fc' : color;
-        const markerRadius = isPrecise ? 8 + urgency_score * 2 : 4 + urgency_score * 2;
+        const markerRadius = isPrecise ? 7 + urgency_score * 1.5 : 4 + urgency_score * 1.5;
         const marker = L.circleMarker([lat, lng], {
             radius: markerRadius,
             fillColor: markerColor,
-            color: markerColor,
-            weight: isPrecise ? 2 : 1,
-            opacity: 0.9,
-            fillOpacity: isPrecise ? 0.75 : 0.6,
+            color: isPrecise ? '#ffffff' : markerColor,
+            weight: isPrecise ? 2.5 : 1,
+            opacity: isPrecise ? 1 : 0.9,
+            fillOpacity: isPrecise ? 0.85 : 0.6,
         });
+
+        // Kesin konumlu noktalar için dış halka (pulse ring) ekle
+        if (isPrecise) {
+            const ring = L.circleMarker([lat, lng], {
+                radius: markerRadius + 6,
+                fillColor: 'transparent',
+                color: '#c084fc',
+                weight: 1.5,
+                opacity: 0.5,
+                fillOpacity: 0,
+                interactive: false,
+            });
+            markerGroup.addLayer(ring);
+        }
 
         const needLabels = (need_types || []).map(n => NEED_TYPE_LABELS[n] || n).join(', ');
         const streetHtml = tweet.analysis?.street_address
             ? `<div style="color:#c084fc;margin-top:3px;"><b>📍 Adres:</b> ${tweet.analysis.street_address}</div>`
             : '';
         const preciseHtml = isPrecise
-            ? `<div style="color:#c084fc;font-weight:600;margin-top:3px;">⬡ Kesin Konum</div>`
+            ? `<div style="color:#c084fc;font-weight:600;margin-top:3px;">📌 Kesin Konum Tespit Edildi</div>`
             : '';
 
         marker.bindPopup(`

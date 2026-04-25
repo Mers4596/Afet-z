@@ -6,7 +6,7 @@
  */
 
 import './style.css';
-import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes, fetchTrustedAccounts, addTrustedAccount, removeTrustedAccount, fetchRegionRisk } from './api.js';
+import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes, fetchTrustedAccounts, addTrustedAccount, removeTrustedAccount, fetchRegionRisk, analyzeAll } from './api.js';
 import { initMap, updateMapWithResults, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
 import { initCharts, updateCharts } from './charts.js';
 import { exportToExcel, exportToPDF } from './export.js';
@@ -435,9 +435,13 @@ function setupEventHandlers() {
         const btn = document.getElementById('btnRefresh');
         setButtonLoading(btn, true);
         try {
+            // 1) Twitter'dan yeni tweet'leri cache'e çek
             await refreshTweets();
-            await loadTweets();
-            showToast('Tweet\'ler yenilendi', 'success');
+            // 2) Cache'teki tüm tweet'leri analiz et (yeni + eskiler)
+            await analyzeAll();
+            // 3) DB'den güncel analiz sonuçlarını çek ve UI'ı güncelle
+            await Promise.all([loadResults(), loadTweets(), loadRateLimit()]);
+            showToast('Tweet\'ler yenilendi ve analiz edildi', 'success');
         } catch (e) {
             showToast(e.message, 'error');
         }

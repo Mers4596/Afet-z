@@ -198,8 +198,8 @@ def analyze_single_tweet(req: AnalyzeRequest):
 
 @app.post("/analyze-all")
 def analyze_all_cached():
-    """Cache'teki tüm tweetleri analiz et."""
-    tweets = tweet_service.get_cache()
+    """Cache'teki tüm tweetleri analiz et (kullanıcı + hashtag cache)."""
+    tweets = tweet_service.get_all_cached()
     if not tweets:
         raise HTTPException(status_code=404, detail="Cache'te tweet yok")
 
