@@ -28,12 +28,14 @@ from app.models import (
     AnalyzedTweet,
     AnalyzeRequest,
     RateLimitStatus,
+    TrustedAccountRequest,
 )
 from app.rate_limiter import RateLimiter
 from app.gemini_service import GeminiService
 from app.tweet_service import TweetService
 from app.database import Database
 from app.earthquake_service import EarthquakeService
+from app.credibility_service import CredibilityService
 
 
 # ─── Servisler ────────────────────────────────────────────
@@ -56,6 +58,51 @@ tweet_service = TweetService(
 
 db = Database(db_path=DATABASE_PATH)
 earth_service = EarthquakeService(min_magnitude=2.0, cache_ttl=300)
+credibility_service = CredibilityService()
+
+
+# ─── Yardımcı: Trust Score Hesapla ──────────────────────
+def _enrich_with_trust(
+    analyzed: AnalyzedTweet,
+    author_username: str = "",
+    city_counts: dict | None = None,
+) -> AnalyzedTweet:
+    """Analiz edilmiş tweete kullanıcı ve bölge bazlı güven skoru ekle."""
+    if city_counts is None:
+        city_counts = {}
+
+    is_trusted = db.is_trusted(author_username) if author_username else False
+
+    # Kullanıcı profili varsa skoru hesapla
+    user_score = 50.0  # Profil yoksa varsayılan orta skor
+    if analyzed.author:
+        user_score = credibility_service.compute_user_score(
+            analyzed.author, is_trusted=is_trusted
+        )
+        analyzed.author.credibility_score = user_score
+        analyzed.author.is_trusted = is_trusted
+    elif is_trusted:
+        user_score = 100.0
+
+    # Bölge kümeleme sayısı
+    cluster_count = 1
+    if analyzed.analysis and analyzed.analysis.city:
+        key = f"{analyzed.analysis.city}||{analyzed.analysis.district or ''}"
+        cluster_count = city_counts.get(key, 1)
+
+    # AFAD eşleşme durumu
+    afad_matched = (
+        analyzed.authenticity is not None
+        and analyzed.authenticity.is_authentic is True
+    )
+
+    analyzed.trust_score = credibility_service.compute_tweet_trust(
+        user_score=user_score,
+        afad_matched=afad_matched,
+        cluster_count=cluster_count,
+        is_trusted_author=is_trusted,
+    )
+    return analyzed
 
 
 # ─── Lifecycle ────────────────────────────────────────────
@@ -96,15 +143,17 @@ def health():
 
 @app.get("/tweets")
 def get_tweets():
-    """Tweet cache'ini döndür (polling ile güncellenir)."""
-    tweets = tweet_service.fetch_tweets()
+    """Hem kullanıcı hem #afetiz hashtag cache'ini döndür."""
+    tweets = tweet_service.get_all_cached()
     return {"count": len(tweets), "tweets": [t.model_dump() for t in tweets]}
 
 
 @app.get("/refresh")
 def refresh_tweets():
-    """Manuel refresh — spam korumalı."""
-    tweets = tweet_service.fetch_tweets(force=True)
+    """Manuel refresh — spam korumalı (kullanıcı + hashtag)."""
+    tweet_service.fetch_tweets(force=True)
+    tweet_service.fetch_hashtag_tweets(force=True)
+    tweets = tweet_service.get_all_cached()
     return {"count": len(tweets), "tweets": [t.model_dump() for t in tweets]}
 
 
@@ -136,8 +185,10 @@ def analyze_single_tweet(req: AnalyzeRequest):
         error=error,
         authenticity=authenticity,
     )
-
     db.save_analysis("manual", req.text, analysis, error)
+
+    city_counts = db.get_city_tweet_counts()
+    result = _enrich_with_trust(result, city_counts=city_counts)
     return result
 
 
@@ -169,9 +220,18 @@ def analyze_all_cached():
 
 @app.get("/results", response_model=TweetListResponse)
 def get_results():
-    """Veritabanındaki tüm analiz sonuçlarını getir."""
+    """Veritabanındaki tüm analiz sonuçlarını getir (trust score dahil)."""
     results = db.get_all_analyses()
-    return {"count": len(results), "tweets": results}
+    city_counts = db.get_city_tweet_counts()
+    enriched = [
+        _enrich_with_trust(
+            t,
+            author_username=t.author.username if t.author else "",
+            city_counts=city_counts,
+        )
+        for t in results
+    ]
+    return {"count": len(enriched), "tweets": enriched}
 
 
 @app.get("/results/{priority}")
@@ -216,7 +276,83 @@ def add_mock_tweet(req: AnalyzeRequest):
         authenticity=authenticity,
     )
     db.save_analysis(tweet_id, req.text, analysis, error)
+
+    city_counts = db.get_city_tweet_counts()
+    analyzed = _enrich_with_trust(analyzed, city_counts=city_counts)
     return analyzed
+
+
+# ─── Hashtag Tweet'leri ──────────────────────────────────
+@app.get("/hashtag-tweets")
+def get_hashtag_tweets(force: bool = False):
+    """#afetiz hashtagiyle paylaşılan tweet'leri Twitter'dan çek."""
+    tweets = tweet_service.fetch_hashtag_tweets(force=force)
+    return {"count": len(tweets), "tweets": [t.model_dump() for t in tweets]}
+
+
+# ─── Bölge Risk Skoru ────────────────────────────────────
+@app.get("/region-risk")
+def get_region_risk():
+    """Analiz edilmiş tweet'lere göre bölge bazlı risk skorlarını döndür."""
+    results = db.get_all_analyses()
+    city_counts = db.get_city_tweet_counts()
+
+    # Her tweet için trust_score hesapla ve bölge verisi topla
+    tweet_data_for_risk: list[dict] = []
+    for t in results:
+        if not t.analysis or not t.analysis.city:
+            continue
+        author_username = t.author.username if t.author else ""
+        is_trusted = db.is_trusted(author_username) if author_username else False
+
+        user_score = 50.0
+        if t.author:
+            user_score = credibility_service.compute_user_score(t.author, is_trusted=is_trusted)
+        elif is_trusted:
+            user_score = 100.0
+
+        key = f"{t.analysis.city}||{t.analysis.district or ''}"
+        cluster_count = city_counts.get(key, 1)
+        afad_matched = (t.authenticity is not None and t.authenticity.is_authentic is True)
+
+        ts = credibility_service.compute_tweet_trust(
+            user_score=user_score,
+            afad_matched=afad_matched,
+            cluster_count=cluster_count,
+            is_trusted_author=is_trusted,
+        )
+
+        tweet_data_for_risk.append({
+            "city": t.analysis.city,
+            "district": t.analysis.district or "",
+            "trust_score_val": ts.score,
+        })
+
+    risks = credibility_service.compute_region_risks(tweet_data_for_risk)
+    return {"count": len(risks), "risks": risks}
+
+
+# ─── Güvenilir Hesaplar ──────────────────────────────────
+@app.get("/trusted-accounts")
+def get_trusted_accounts():
+    """Güvenilir hesap listesini getir."""
+    return {"accounts": db.get_trusted_accounts()}
+
+
+@app.post("/trusted-accounts")
+def add_trusted_account(req: TrustedAccountRequest):
+    """Güvenilir hesap ekle."""
+    if not req.username.strip():
+        raise HTTPException(status_code=400, detail="Kullanıcı adı boş olamaz")
+    db.add_trusted_account(req.username.strip(), req.note)
+    return {"success": True, "username": req.username.lower().strip()}
+
+
+@app.delete("/trusted-accounts/{username}")
+def remove_trusted_account(username: str):
+    """Güvenilir hesabı sil."""
+    db.remove_trusted_account(username)
+    return {"success": True, "username": username}
 
 
 if __name__ == "__main__":

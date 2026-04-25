@@ -81,3 +81,33 @@ export function addMockTweet(text, checkAuthenticity = false) {
 export function fetchEarthquakes(force = false) {
     return apiFetch(`/earthquakes${force ? '?force=true' : ''}`);
 }
+
+/** #afetiz hashtagiyle paylaşılan tweet'leri çek */
+export function fetchHashtagTweets(force = false) {
+    return apiFetch(`/hashtag-tweets${force ? '?force=true' : ''}`);
+}
+
+/** Bölge bazlı risk skorlarını getir */
+export function fetchRegionRisk() {
+    return apiFetch('/region-risk');
+}
+
+/** Güvenilir hesap listesini getir */
+export function fetchTrustedAccounts() {
+    return apiFetch('/trusted-accounts');
+}
+
+/** Güvenilir hesap ekle */
+export function addTrustedAccount(username, note = '') {
+    return apiFetch('/trusted-accounts', {
+        method: 'POST',
+        body: JSON.stringify({ username, note }),
+    });
+}
+
+/** Güvenilir hesabı sil */
+export function removeTrustedAccount(username) {
+    return apiFetch(`/trusted-accounts/${encodeURIComponent(username)}`, {
+        method: 'DELETE',
+    });
+}
