@@ -1,0 +1,365 @@
+/**
+ * AfetİZ — Ana Uygulama
+ *
+ * Backend API'ye bağlanır, harita + grafikler + tweet feed günceller.
+ * Fake-realtime polling (5sn) + manuel refresh + mock tweet desteği.
+ */
+
+import './style.css';
+import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet } from './api.js';
+import { initMap, updateMapWithResults, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
+import { initCharts, updateCharts } from './charts.js';
+
+// ── State ──────────────────────────────────────────────────
+let analyzedTweets = [];
+let rawTweets = [];
+let rateLimit = { requests_this_minute: 0, requests_today: 0, max_rpm: 15, max_rpd: 500, remaining_rpm: 15, remaining_rpd: 500 };
+let isLoading = false;
+let pollTimer = null;
+
+// ── DOM Render ─────────────────────────────────────────────
+function renderApp() {
+    const app = document.getElementById('app');
+    app.innerHTML = `
+    <div class="dashboard">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">
+                <i class="fas fa-chart-line"></i>
+                <h1>AFETİZ</h1>
+                <span class="header-badge">KRİZ İZLEME</span>
+            </div>
+            <div class="header-right">
+                <div class="rate-limit-badge" id="rateLimitBadge" title="Gemini API Rate Limit">
+                    <i class="fas fa-gauge-high"></i>
+                    <span id="rateLimitText">RPM: 15/15 · RPD: 500/500</span>
+                </div>
+                <div class="live-badge">
+                    <div class="pulse-dot"></div>
+                    <span>GERÇEK ZAMANLI AKIŞ</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="toolbar">
+            <button class="btn btn--primary" id="btnRefresh" title="Tweet'leri yenile">
+                <i class="fas fa-sync-alt"></i> Yenile
+            </button>
+            <button class="btn" id="btnAnalyzeAll" title="Tüm tweet'leri analiz et">
+                <i class="fas fa-brain"></i> Tümünü Analiz Et
+            </button>
+            <div class="toolbar-separator"></div>
+            <div class="tweet-input-group">
+                <input type="text" class="tweet-input" id="mockTweetInput"
+                    placeholder="Demo tweet yaz... (ör: Antakya'da enkaz altında yaralılar var, acil yardım)">
+                <button class="btn btn--primary" id="btnMockTweet" title="Demo tweet ekle ve analiz et">
+                    <i class="fas fa-paper-plane"></i> Gönder
+                </button>
+            </div>
+        </div>
+
+        <!-- Ana Alan: Harita + Sağ Panel -->
+        <div class="main-grid">
+            <div class="map-wrapper">
+                <div id="map"></div>
+                <div class="map-caption"><i class="fas fa-fire"></i> Isı Haritası (Tweet Yoğunluğu)</div>
+                <div class="map-legend">
+                    <div class="legend-item"><div class="legend-dot" style="background:${PRIORITY_COLORS.critical}"></div> Çok Acil</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:${PRIORITY_COLORS.high}"></div> Acil</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:${PRIORITY_COLORS.medium}"></div> Orta</div>
+                    <div class="legend-item"><div class="legend-dot" style="background:${PRIORITY_COLORS.low}"></div> Düşük</div>
+                </div>
+            </div>
+            <div class="right-panel">
+                <div class="kpi-container">
+                    <div class="kpi-card" id="kpiTotal">
+                        <div class="kpi-title"><i class="fas fa-database"></i> TOPLAM ANALİZ</div>
+                        <div class="kpi-number" id="kpiTotalNum">0</div>
+                    </div>
+                    <div class="kpi-card critical" id="kpiCritical">
+                        <div class="kpi-title"><i class="fas fa-exclamation-triangle"></i> KRİTİK</div>
+                        <div class="kpi-number" id="kpiCriticalNum">0</div>
+                    </div>
+                    <div class="kpi-card" id="kpiCache">
+                        <div class="kpi-title"><i class="fab fa-twitter"></i> CACHE TWEET</div>
+                        <div class="kpi-number" id="kpiCacheNum">0</div>
+                    </div>
+                    <div class="kpi-card" id="kpiCities">
+                        <div class="kpi-title"><i class="fas fa-map-pin"></i> ETKİLENEN İL</div>
+                        <div class="kpi-number" id="kpiCitiesNum">0</div>
+                    </div>
+                </div>
+                <div class="tweet-feed">
+                    <div class="feed-header">
+                        <div class="feed-title"><i class="fab fa-twitter" style="color:#1DA1F2;"></i> Son Analizler</div>
+                        <span class="feed-count" id="feedCount">0 sonuç</span>
+                    </div>
+                    <div id="tweetFeedList">
+                        <div class="skeleton" style="height:60px;margin-bottom:10px;"></div>
+                        <div class="skeleton" style="height:60px;margin-bottom:10px;"></div>
+                        <div class="skeleton" style="height:60px;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- D3 Grafikler -->
+        <div class="charts-section">
+            <div class="charts-title"><i class="fas fa-chart-simple"></i> ANALİTİK GÖRSELLER</div>
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3><i class="fas fa-chart-pie"></i> İhtiyaç Türü Dağılımı</h3>
+                    <div id="need-type-chart" class="chart-container"></div>
+                </div>
+                <div class="chart-card">
+                    <h3><i class="fas fa-city"></i> İl Bazlı Tweet Yoğunluğu</h3>
+                    <div id="city-bar-chart" class="chart-container"></div>
+                </div>
+                <div class="chart-card">
+                    <h3><i class="fas fa-gauge-high"></i> Aciliyet Dağılımı</h3>
+                    <div id="urgency-chart" class="chart-container"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+    `;
+}
+
+// ── KPI Güncelle ───────────────────────────────────────────
+function updateKPIs() {
+    const valid = analyzedTweets.filter(t => t.analysis);
+    const critical = valid.filter(t => t.analysis.map_priority === 'critical').length;
+    const cities = new Set(valid.map(t => t.analysis.city)).size;
+
+    setText('kpiTotalNum', valid.length);
+    setText('kpiCriticalNum', critical);
+    setText('kpiCacheNum', rawTweets.length);
+    setText('kpiCitiesNum', cities);
+    setText('feedCount', `${valid.length} sonuç`);
+}
+
+// ── Tweet Feed Güncelle ────────────────────────────────────
+function updateTweetFeed() {
+    const container = document.getElementById('tweetFeedList');
+    if (!container) return;
+
+    const valid = analyzedTweets.filter(t => t.analysis);
+
+    if (valid.length === 0) {
+        container.innerHTML = '<div style="color:#94a3b8;font-size:0.8rem;text-align:center;padding:1.5rem;">Henüz analiz sonucu yok. Bir tweet gönderin veya "Tümünü Analiz Et" butonuna basın.</div>';
+        return;
+    }
+
+    container.innerHTML = valid.slice(0, 15).map(tweet => {
+        const a = tweet.analysis;
+        const priority = a.map_priority || 'medium';
+        const needTags = (a.need_types || [])
+            .map(n => `<span class="need-tag">${NEED_TYPE_LABELS[n] || n}</span>`)
+            .join('');
+
+        return `
+        <div class="tweet-item ${priority}">
+            <div class="tweet-text"><i class="fab fa-twitter" style="color:#1DA1F2;margin-right:4px;"></i>${escapeHtml(tweet.text)}</div>
+            <div class="tweet-meta">
+                <span><i class="fas fa-map-marker-alt"></i> ${a.city}${a.district ? ' / ' + a.district : ''}</span>
+                <span class="urgency-badge ${priority}">${getUrgencyLabel(a.urgency_score)}</span>
+            </div>
+            ${needTags ? `<div class="need-tags">${needTags}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+// ── Rate Limit Güncelle ────────────────────────────────────
+function updateRateLimitBadge() {
+    const badge = document.getElementById('rateLimitBadge');
+    const text = document.getElementById('rateLimitText');
+    if (!badge || !text) return;
+
+    text.textContent = `RPM: ${rateLimit.remaining_rpm}/${rateLimit.max_rpm} · RPD: ${rateLimit.remaining_rpd}/${rateLimit.max_rpd}`;
+
+    badge.classList.remove('warning', 'danger');
+    if (rateLimit.remaining_rpd < 50 || rateLimit.remaining_rpm < 3) {
+        badge.classList.add('danger');
+    } else if (rateLimit.remaining_rpd < 150 || rateLimit.remaining_rpm < 8) {
+        badge.classList.add('warning');
+    }
+}
+
+// ── Veri Çekme ─────────────────────────────────────────────
+async function loadResults() {
+    try {
+        const data = await fetchResults();
+        analyzedTweets = data.tweets || [];
+        updateAll();
+    } catch (e) {
+        console.warn('Sonuçlar yüklenemedi:', e.message);
+    }
+}
+
+async function loadTweets() {
+    try {
+        const data = await fetchTweets();
+        rawTweets = data.tweets || [];
+        updateKPIs();
+    } catch (e) {
+        console.warn('Tweet\'ler yüklenemedi:', e.message);
+    }
+}
+
+async function loadRateLimit() {
+    try {
+        rateLimit = await fetchRateLimit();
+        updateRateLimitBadge();
+    } catch (e) {
+        console.warn('Rate limit alınamadı:', e.message);
+    }
+}
+
+function updateAll() {
+    updateKPIs();
+    updateTweetFeed();
+    updateMapWithResults(analyzedTweets.filter(t => t.analysis));
+    updateCharts(analyzedTweets);
+}
+
+// ── Event Handlers ─────────────────────────────────────────
+function setupEventHandlers() {
+    // Refresh
+    document.getElementById('btnRefresh')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btnRefresh');
+        setButtonLoading(btn, true);
+        try {
+            await refreshTweets();
+            await loadTweets();
+            showToast('Tweet\'ler yenilendi', 'success');
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+        setButtonLoading(btn, false);
+    });
+
+    // Analyze All
+    document.getElementById('btnAnalyzeAll')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btnAnalyzeAll');
+        setButtonLoading(btn, true);
+        try {
+            const res = await fetch('http://localhost:8000/analyze-all', { method: 'POST' });
+            if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.detail || 'Analiz hatası');
+            }
+            const data = await res.json();
+            showToast(`${data.analyzed}/${data.total} tweet analiz edildi`, 'success');
+            await loadResults();
+            await loadRateLimit();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+        setButtonLoading(btn, false);
+    });
+
+    // Mock Tweet
+    const mockInput = document.getElementById('mockTweetInput');
+    const btnMock = document.getElementById('btnMockTweet');
+
+    async function sendMockTweet() {
+        const text = mockInput?.value?.trim();
+        if (!text) return;
+
+        setButtonLoading(btnMock, true);
+        try {
+            const result = await addMockTweet(text);
+            analyzedTweets.unshift(result);
+            mockInput.value = '';
+            updateAll();
+            await loadRateLimit();
+            showToast('Tweet analiz edildi!', 'success');
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+        setButtonLoading(btnMock, false);
+    }
+
+    btnMock?.addEventListener('click', sendMockTweet);
+    mockInput?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendMockTweet();
+    });
+}
+
+// ── Polling ────────────────────────────────────────────────
+function startPolling() {
+    // Her 5 saniyede bir sonuçları ve rate limit'i güncelle
+    pollTimer = setInterval(async () => {
+        await loadResults();
+        await loadRateLimit();
+    }, 5000);
+}
+
+// ── Yardımcılar ────────────────────────────────────────────
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+}
+
+function escapeHtml(str) {
+    return str.replace(/[&<>]/g, m => {
+        if (m === '&') return '&amp;';
+        if (m === '<') return '&lt;';
+        if (m === '>') return '&gt;';
+        return m;
+    });
+}
+
+function getUrgencyLabel(score) {
+    const labels = { 1: 'Bilgi', 2: 'Düşük', 3: 'Orta', 4: 'Acil', 5: 'Çok Acil' };
+    return labels[score] || 'Bilinmiyor';
+}
+
+function setButtonLoading(btn, loading) {
+    if (!btn) return;
+    btn.disabled = loading;
+    if (loading) {
+        btn.dataset.originalHtml = btn.innerHTML;
+        const text = btn.textContent.trim();
+        btn.innerHTML = `<span class="spinner"></span> ${text}`;
+    } else {
+        btn.innerHTML = btn.dataset.originalHtml || btn.innerHTML;
+    }
+}
+
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const icon = type === 'success' ? 'fa-check-circle' : type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle';
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<i class="fas ${icon}"></i> ${escapeHtml(message)}`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        toast.style.transition = '0.3s ease';
+        setTimeout(() => toast.remove(), 300);
+    }, 3500);
+}
+
+// ── Başlat ─────────────────────────────────────────────────
+async function init() {
+    renderApp();
+    initMap();
+    await initCharts();
+    setupEventHandlers();
+
+    // İlk veri yükleme
+    await Promise.all([loadResults(), loadTweets(), loadRateLimit()]);
+
+    // Polling başlat
+    startPolling();
+}
+
+init();
