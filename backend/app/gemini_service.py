@@ -27,6 +27,8 @@ KURALLAR:
   "city": "İl adı",
   "district": "İlçe adı",
   "neighborhood": "Mahalle adı",
+  "street_address": "Sokak ve bina bilgisi (varsa, ör: Gül Sokak No:12 Daire:3)",
+  "has_precise_location": true/false,
   "need_types": ["arama_kurtarma", "saglik", "su", "gida", "barinma", "yol_kapali", "yangin", "elektrik_iletisim"],
   "urgency_score": 1-5 arası tam sayı (5 en acil),
   "confidence": 0.0-1.0 arası güven skoru,
@@ -38,15 +40,17 @@ KURALLAR:
 4. Eğer lokasyon bilgisi yoksa, city alanına "Bilinmiyor" yaz.
 5. urgency_score: 5=Çok acil (enkaz altı, ölüm tehlikesi), 4=Acil, 3=Orta, 2=Düşük, 1=Bilgi amaçlı
 6. map_priority: urgency_score 5→critical, 4→high, 3→medium, 1-2→low
+7. has_precise_location: Tweet'te sokak adı, bina numarası, daire numarası, kapı no gibi kesin adres varsa true; sadece şehir/ilçe/mahalle bilgisi varsa false.
+8. street_address: Sokak/cadde adı ve numara varsa doldur, yoksa boş bırak.
 
 ÖRNEK:
 Tweet: "Antakya Cumhuriyet Mahallesi Gül Sokak No:12, enkaz altındayız yardım edin, kanama var"
 Çıktı:
-{"city": "Hatay", "district": "Antakya", "neighborhood": "Cumhuriyet Mahallesi", "need_types": ["arama_kurtarma", "saglik"], "urgency_score": 5, "confidence": 0.92, "summary": "Enkaz altında yaralı kişiler, kanama var", "map_priority": "critical"}
+{"city": "Hatay", "district": "Antakya", "neighborhood": "Cumhuriyet Mahallesi", "street_address": "Gül Sokak No:12", "has_precise_location": true, "need_types": ["arama_kurtarma", "saglik"], "urgency_score": 5, "confidence": 0.92, "summary": "Enkaz altında yaralı kişiler, kanama var", "map_priority": "critical"}
 
 Tweet: "Kahramanmaraş merkez su yok 2 gündür"
 Çıktı:
-{"city": "Kahramanmaraş", "district": "Merkez", "neighborhood": "", "need_types": ["su"], "urgency_score": 3, "confidence": 0.85, "summary": "2 gündür su kesintisi", "map_priority": "medium"}
+{"city": "Kahramanmaraş", "district": "Merkez", "neighborhood": "", "street_address": "", "has_precise_location": false, "need_types": ["su"], "urgency_score": 3, "confidence": 0.85, "summary": "2 gündür su kesintisi", "map_priority": "medium"}
 """
 
 

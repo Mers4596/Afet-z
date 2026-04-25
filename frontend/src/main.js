@@ -6,13 +6,14 @@
  */
 
 import './style.css';
-import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes } from './api.js';
+import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes, fetchTrustedAccounts, addTrustedAccount, removeTrustedAccount, fetchRegionRisk } from './api.js';
 import { initMap, updateMapWithResults, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
 import { initCharts, updateCharts } from './charts.js';
 
 // ── State ──────────────────────────────────────────────────
 let analyzedTweets = [];
 let rawTweets = [];
+let trustedAccounts = [];
 let rateLimit = { requests_this_minute: 0, requests_today: 0, max_rpm: 15, max_rpd: 500, remaining_rpm: 15, remaining_rpd: 500 };
 let isLoading = false;
 let pollTimer = null;
@@ -99,6 +100,10 @@ function renderApp() {
                     <i class="fas fa-paper-plane"></i> Gönder
                 </button>
             </div>
+            <div class="toolbar-separator"></div>
+            <button class="btn btn--trusted" id="btnTrustedAccounts" title="Güvenilir hesapları yönet">
+                <i class="fas fa-shield-halved"></i> Güvenilir Hesaplar
+            </button>
         </div>
 
         <!-- Ana Alan: Harita + Sağ Panel -->
@@ -167,6 +172,29 @@ function renderApp() {
     </div>
 
     <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Güvenilir Hesaplar Modalı -->
+    <div class="modal-overlay hidden" id="trustedModal">
+        <div class="modal-panel">
+            <div class="modal-header">
+                <h3><i class="fas fa-shield-halved"></i> Güvenilir Hesaplar</h3>
+                <button class="modal-close" id="btnCloseTrusted" aria-label="Kapat">×</button>
+            </div>
+            <div class="modal-body">
+                <p class="modal-hint">Eklediğin hesaplar profil analizi yapılmadan direkt <strong>%100 güvenilir</strong> kabul edilir. Sunum için ideal.</p>
+                <div class="trusted-add-row">
+                    <input type="text" class="tweet-input" id="trustedUsernameInput" placeholder="kullanıcı_adı (@ olmadan)">
+                    <input type="text" class="tweet-input trusted-note-input" id="trustedNoteInput" placeholder="Not (opsiyonel)">
+                    <button class="btn btn--primary" id="btnAddTrusted">
+                        <i class="fas fa-plus"></i> Ekle
+                    </button>
+                </div>
+                <div id="trustedList" class="trusted-list">
+                    <div class="trusted-empty">Henüz güvenilir hesap eklenmedi.</div>
+                </div>
+            </div>
+        </div>
+    </div>
     `;
 }
 
@@ -195,7 +223,16 @@ function updateTweetFeed() {
         return;
     }
 
-    container.innerHTML = valid.slice(0, 15).map(tweet => {
+    container.innerHTML = valid
+        // En yeni önce: analyzed_at yoksa tweet_id'ye göre sırala
+        .slice()
+        .sort((a, b) => {
+            const ta = a.analyzed_at || a.tweet_id || '';
+            const tb = b.analyzed_at || b.tweet_id || '';
+            return tb.localeCompare(ta);
+        })
+        .slice(0, 15)
+        .map(tweet => {
         const a = tweet.analysis;
         const priority = a.map_priority || 'medium';
         const needTags = (a.need_types || [])
@@ -215,17 +252,107 @@ function updateTweetFeed() {
             }
         }
 
+        // Güven skoru badge
+        let trustBadge = '';
+        if (tweet.trust_score) {
+            const ts = tweet.trust_score;
+            const lvl = ts.score >= 70 ? 'trust-high' : ts.score >= 40 ? 'trust-mid' : 'trust-low';
+            trustBadge = `<span class="trust-badge ${lvl}" title="${escapeHtml(ts.explanation)}"><i class="fas fa-percent"></i> ${ts.score} güven</span>`;
+        }
+
+        // Kesin konum badge (sokak/bina seviyesi)
+        // TODO: Bu badge'e tıklanınca 3D bina modellemesi açılacak (gelecek sprint)
+        let preciseBadge = '';
+        if (a.has_precise_location) {
+            const addr = a.street_address ? ` — ${a.street_address}` : '';
+            preciseBadge = `<span class="precise-location-badge" title="Kesin konum mevcut${escapeHtml(addr)} · TODO: 3D modelleme">
+                <i class="fas fa-location-crosshairs"></i> Kesin Konum${addr ? ': ' + escapeHtml(a.street_address) : ''}
+            </span>`;
+        }
+
+        // Yazar badge (varsa)
+        let authorBadge = '';
+        if (tweet.author?.username) {
+            const isTr = tweet.author.is_trusted;
+            const followers = tweet.author.followers > 1000
+                ? `${(tweet.author.followers / 1000).toFixed(1)}K`
+                : String(tweet.author.followers);
+            const ageYears = (tweet.author.account_age_days / 365).toFixed(1);
+            const tooltip = isTr
+                ? 'Güvenilir Hesap'
+                : `Hesap yaşı: ${ageYears} yıl | Takipçi: ${followers}`;
+            authorBadge = `<span class="author-badge${isTr ? ' trusted' : ''}" title="${escapeHtml(tooltip)}">
+                ${isTr ? '<i class="fas fa-shield-check"></i>' : '<i class="fab fa-twitter"></i>'}
+                @${escapeHtml(tweet.author.username)}${isTr ? ' <i class="fas fa-star" style="font-size:0.6rem;color:#fbbf24;"></i>' : ''}
+            </span>`;
+        }
+
+        const isFake = sahtelikAnalizi && tweet.authenticity?.is_authentic === false;
+
         return `
-        <div class="tweet-item ${priority}">
+        <div class="tweet-item ${priority}${isFake ? ' tweet-fake' : ''}">
             <div class="tweet-text"><i class="fab fa-twitter" style="color:#1DA1F2;margin-right:4px;"></i>${escapeHtml(tweet.text)}</div>
             <div class="tweet-meta">
                 <span><i class="fas fa-map-marker-alt"></i> ${a.city}${a.district ? ' / ' + a.district : ''}</span>
                 <span class="urgency-badge ${priority}">${getUrgencyLabel(a.urgency_score)}</span>
                 ${authenticityBadge}
+                ${trustBadge}
+                ${preciseBadge}
+                ${authorBadge}
             </div>
             ${needTags ? `<div class="need-tags">${needTags}</div>` : ''}
         </div>`;
     }).join('');
+}
+
+// ── Güvenilir Hesaplar ─────────────────────────────────────
+async function loadTrustedAccounts() {
+    try {
+        const data = await fetchTrustedAccounts();
+        trustedAccounts = data.accounts || [];
+        renderTrustedList();
+    } catch (e) {
+        console.warn('Güvenilir hesaplar yüklenemedi:', e.message);
+    }
+}
+
+function renderTrustedList() {
+    const container = document.getElementById('trustedList');
+    if (!container) return;
+
+    if (trustedAccounts.length === 0) {
+        container.innerHTML = '<div class="trusted-empty">Henüz güvenilir hesap eklenmedi.</div>';
+        return;
+    }
+
+    container.innerHTML = trustedAccounts.map(acc => `
+        <div class="trusted-item">
+            <div class="trusted-item-info">
+                <i class="fas fa-shield-check" style="color:#22c55e;"></i>
+                <strong>@${escapeHtml(acc.username)}</strong>
+                ${acc.note ? `<span class="trusted-note">${escapeHtml(acc.note)}</span>` : ''}
+            </div>
+            <button class="btn btn--danger-sm" data-username="${escapeHtml(acc.username)}" title="Listeden çıkar">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `).join('');
+
+    // Silme butonlarına listener ekle
+    container.querySelectorAll('[data-username]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const username = btn.dataset.username;
+            try {
+                await removeTrustedAccount(username);
+                trustedAccounts = trustedAccounts.filter(a => a.username !== username);
+                renderTrustedList();
+                showToast(`@${username} güvenilir listesinden çıkarıldı`, 'info');
+                await loadResults(); // Trust score'ları yenile
+            } catch (e) {
+                showToast(e.message, 'error');
+            }
+        });
+    });
 }
 
 // ── Rate Limit Güncelle ────────────────────────────────────
@@ -374,6 +501,47 @@ function setupEventHandlers() {
     mockInput?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') sendMockTweet();
     });
+
+    // Güvenilir Hesaplar Modal
+    document.getElementById('btnTrustedAccounts')?.addEventListener('click', () => {
+        document.getElementById('trustedModal')?.classList.remove('hidden');
+        loadTrustedAccounts();
+    });
+
+    document.getElementById('btnCloseTrusted')?.addEventListener('click', () => {
+        document.getElementById('trustedModal')?.classList.add('hidden');
+    });
+
+    document.getElementById('trustedModal')?.addEventListener('click', (e) => {
+        if (e.target.id === 'trustedModal') {
+            document.getElementById('trustedModal')?.classList.add('hidden');
+        }
+    });
+
+    document.getElementById('btnAddTrusted')?.addEventListener('click', async () => {
+        const usernameInput = document.getElementById('trustedUsernameInput');
+        const noteInput = document.getElementById('trustedNoteInput');
+        const username = usernameInput?.value?.trim().replace(/^@/, '');
+        if (!username) { showToast('Kullanıcı adı girin', 'error'); return; }
+
+        const btn = document.getElementById('btnAddTrusted');
+        setButtonLoading(btn, true);
+        try {
+            await addTrustedAccount(username, noteInput?.value?.trim() || '');
+            if (usernameInput) usernameInput.value = '';
+            if (noteInput) noteInput.value = '';
+            await loadTrustedAccounts();
+            showToast(`@${username} güvenilir listeye eklendi`, 'success');
+            await loadResults(); // Trust score'ları yenile
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+        setButtonLoading(btn, false);
+    });
+
+    document.getElementById('trustedUsernameInput')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') document.getElementById('btnAddTrusted')?.click();
+    });
 }
 
 // ── Polling ────────────────────────────────────────────────
@@ -456,7 +624,7 @@ async function init() {
     restoreToggleUI();      // Checkbox'ı kayıtlı state'e ayarla
 
     // İlk veri yükleme
-    await Promise.all([loadResults(), loadTweets(), loadRateLimit()]);
+    await Promise.all([loadResults(), loadTweets(), loadRateLimit(), loadTrustedAccounts()]);
 
     // Polling başlat
     startPolling();

@@ -134,21 +134,34 @@ export function updateMapWithResults(analyzedTweets) {
 
         // Marker ekle
         const color = PRIORITY_COLORS[map_priority] || PRIORITY_COLORS.medium;
+        // Kesin konumlu tweet'ler (sokak/bina) daha büyük ve farklı renkte gösterilir
+        // TODO: Kesin konuma tıklanınca 3D bina modellemesi açılacak (gelecek sprint)
+        const isPrecise = tweet.analysis?.has_precise_location === true;
+        const markerColor = isPrecise ? '#c084fc' : color;
+        const markerRadius = isPrecise ? 8 + urgency_score * 2 : 4 + urgency_score * 2;
         const marker = L.circleMarker([lat, lng], {
-            radius: 4 + urgency_score * 2,
-            fillColor: color,
-            color: color,
-            weight: 1,
+            radius: markerRadius,
+            fillColor: markerColor,
+            color: markerColor,
+            weight: isPrecise ? 2 : 1,
             opacity: 0.9,
-            fillOpacity: 0.6,
+            fillOpacity: isPrecise ? 0.75 : 0.6,
         });
 
         const needLabels = (need_types || []).map(n => NEED_TYPE_LABELS[n] || n).join(', ');
+        const streetHtml = tweet.analysis?.street_address
+            ? `<div style="color:#c084fc;margin-top:3px;"><b>📍 Adres:</b> ${tweet.analysis.street_address}</div>`
+            : '';
+        const preciseHtml = isPrecise
+            ? `<div style="color:#c084fc;font-weight:600;margin-top:3px;">⬡ Kesin Konum</div>`
+            : '';
 
         marker.bindPopup(`
             <div style="font-family:Inter,sans-serif; font-size:12px; min-width:180px;">
                 <strong style="font-size:14px;">${city}</strong>
                 ${district ? `<br><span style="color:#94a3b8;">${district}</span>` : ''}
+                ${streetHtml}
+                ${preciseHtml}
                 <hr style="border-color:#334155; margin:6px 0;">
                 <div><b>Aciliyet:</b> ${urgency_score}/5</div>
                 <div><b>İhtiyaçlar:</b> ${needLabels || '—'}</div>
