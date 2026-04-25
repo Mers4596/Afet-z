@@ -33,6 +33,7 @@ from app.rate_limiter import RateLimiter
 from app.gemini_service import GeminiService
 from app.tweet_service import TweetService
 from app.database import Database
+from app.earthquake_service import EarthquakeService
 
 
 # ─── Servisler ────────────────────────────────────────────
@@ -54,6 +55,7 @@ tweet_service = TweetService(
 )
 
 db = Database(db_path=DATABASE_PATH)
+earth_service = EarthquakeService(min_magnitude=2.0, cache_ttl=300)
 
 
 # ─── Lifecycle ────────────────────────────────────────────
@@ -106,16 +108,33 @@ def refresh_tweets():
     return {"count": len(tweets), "tweets": [t.model_dump() for t in tweets]}
 
 
+@app.get("/earthquakes")
+def get_earthquakes(force: bool = False):
+    """Son 24 saatteki depremleri AFAD'dan getir."""
+    data = earth_service.get_earthquakes(force=force)
+    return {"count": len(data), "earthquakes": data}
+
+
 @app.post("/analyze", response_model=AnalyzedTweet)
 def analyze_single_tweet(req: AnalyzeRequest):
     """Tek bir tweeti Gemini ile analiz et."""
     analysis, error = gemini_service.analyze_tweet_safe(req.text)
+
+    authenticity = None
+    if req.check_authenticity and analysis:
+        auth_dict = earth_service.check_authenticity(
+            city=analysis.city,
+            district=analysis.district,
+        )
+        from app.models import AuthenticityResult
+        authenticity = AuthenticityResult(**auth_dict)
 
     result = AnalyzedTweet(
         tweet_id="manual",
         text=req.text,
         analysis=analysis,
         error=error,
+        authenticity=authenticity,
     )
 
     db.save_analysis("manual", req.text, analysis, error)
@@ -176,14 +195,25 @@ def add_mock_tweet(req: AnalyzeRequest):
     """Demo/test için mock tweet ekle ve analiz et."""
     import uuid
     tweet_id = str(uuid.uuid4())[:8]
-    tweet = tweet_service.add_mock_tweet(tweet_id, req.text)
+    tweet_service.add_mock_tweet(tweet_id, req.text)
 
     analysis, error = gemini_service.analyze_tweet_safe(req.text)
+
+    authenticity = None
+    if req.check_authenticity and analysis:
+        auth_dict = earth_service.check_authenticity(
+            city=analysis.city,
+            district=analysis.district,
+        )
+        from app.models import AuthenticityResult
+        authenticity = AuthenticityResult(**auth_dict)
+
     analyzed = AnalyzedTweet(
         tweet_id=tweet_id,
         text=req.text,
         analysis=analysis,
         error=error,
+        authenticity=authenticity,
     )
     db.save_analysis(tweet_id, req.text, analysis, error)
     return analyzed

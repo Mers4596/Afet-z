@@ -10,6 +10,7 @@
  *   GET  /results/:pri  → Önceliğe göre filtre
  *   GET  /rate-limit    → Gemini rate-limit durumu
  *   POST /mock-tweet    → Demo tweet ekle + analiz
+ *   GET  /earthquakes   → AFAD son 24h depremler
  */
 
 const API_BASE = 'http://localhost:8000';
@@ -41,10 +42,10 @@ export function refreshTweets() {
 }
 
 /** Tek tweet analiz et */
-export function analyzeTweet(text) {
+export function analyzeTweet(text, checkAuthenticity = false) {
     return apiFetch('/analyze', {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, check_authenticity: checkAuthenticity }),
     });
 }
 
@@ -69,9 +70,14 @@ export function fetchRateLimit() {
 }
 
 /** Mock tweet ekle + analiz et (demo) */
-export function addMockTweet(text) {
+export function addMockTweet(text, checkAuthenticity = false) {
     return apiFetch('/mock-tweet', {
         method: 'POST',
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, check_authenticity: checkAuthenticity }),
     });
+}
+
+/** AFAD son 24h deprem listesi */
+export function fetchEarthquakes(force = false) {
+    return apiFetch(`/earthquakes${force ? '?force=true' : ''}`);
 }

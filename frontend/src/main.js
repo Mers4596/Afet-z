@@ -6,7 +6,7 @@
  */
 
 import './style.css';
-import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet } from './api.js';
+import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes } from './api.js';
 import { initMap, updateMapWithResults, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
 import { initCharts, updateCharts } from './charts.js';
 
@@ -16,6 +16,7 @@ let rawTweets = [];
 let rateLimit = { requests_this_minute: 0, requests_today: 0, max_rpm: 15, max_rpd: 500, remaining_rpm: 15, remaining_rpd: 500 };
 let isLoading = false;
 let pollTimer = null;
+let sahtelikAnalizi = false;   // Sahtelik Analizi toggle state
 
 // ── DOM Render ─────────────────────────────────────────────
 function renderApp() {
@@ -49,6 +50,17 @@ function renderApp() {
             <button class="btn" id="btnAnalyzeAll" title="Tüm tweet'leri analiz et">
                 <i class="fas fa-brain"></i> Tümünü Analiz Et
             </button>
+            <div class="toolbar-separator"></div>
+            <div class="authenticity-toggle-wrap" title="Açıkken her analiz AFAD deprem verisiyle doğrulanır">
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggleAuthenticity">
+                    <span class="toggle-slider"></span>
+                </label>
+                <span class="toggle-label" id="authenticityLabel">
+                    <i class="fas fa-shield-halved"></i> Sahtelik Analizi
+                    <span class="toggle-state-badge" id="toggleStateBadge">KAPALI</span>
+                </span>
+            </div>
             <div class="toolbar-separator"></div>
             <div class="tweet-input-group">
                 <input type="text" class="tweet-input" id="mockTweetInput"
@@ -160,12 +172,26 @@ function updateTweetFeed() {
             .map(n => `<span class="need-tag">${NEED_TYPE_LABELS[n] || n}</span>`)
             .join('');
 
+        // Sahtelik analizi badge
+        let authenticityBadge = '';
+        if (tweet.authenticity) {
+            const auth = tweet.authenticity;
+            if (auth.is_authentic === true) {
+                authenticityBadge = `<span class="auth-badge auth-real" title="${escapeHtml(auth.explanation)}"><i class="fas fa-check-circle"></i> Gerçek</span>`;
+            } else if (auth.is_authentic === false) {
+                authenticityBadge = `<span class="auth-badge auth-fake" title="${escapeHtml(auth.explanation)}"><i class="fas fa-exclamation-triangle"></i> Şüpheli</span>`;
+            } else {
+                authenticityBadge = `<span class="auth-badge auth-unknown" title="${escapeHtml(auth.explanation)}"><i class="fas fa-question-circle"></i> Doğrulanamadı</span>`;
+            }
+        }
+
         return `
         <div class="tweet-item ${priority}">
             <div class="tweet-text"><i class="fab fa-twitter" style="color:#1DA1F2;margin-right:4px;"></i>${escapeHtml(tweet.text)}</div>
             <div class="tweet-meta">
                 <span><i class="fas fa-map-marker-alt"></i> ${a.city}${a.district ? ' / ' + a.district : ''}</span>
                 <span class="urgency-badge ${priority}">${getUrgencyLabel(a.urgency_score)}</span>
+                ${authenticityBadge}
             </div>
             ${needTags ? `<div class="need-tags">${needTags}</div>` : ''}
         </div>`;
@@ -261,6 +287,23 @@ function setupEventHandlers() {
         setButtonLoading(btn, false);
     });
 
+    // Sahtelik Analizi Toggle
+    const toggleEl = document.getElementById('toggleAuthenticity');
+    const badgeEl = document.getElementById('toggleStateBadge');
+    toggleEl?.addEventListener('change', () => {
+        sahtelikAnalizi = toggleEl.checked;
+        if (badgeEl) {
+            badgeEl.textContent = sahtelikAnalizi ? 'A\u00c7IK' : 'KAPALI';
+            badgeEl.className = `toggle-state-badge${sahtelikAnalizi ? ' active' : ''}`;
+        }
+        showToast(
+            sahtelikAnalizi
+                ? 'Sahtelik Analizi a\u00e7\u0131ld\u0131 \u2014 her analiz AFAD verisiyle do\u011frulanacak'
+                : 'Sahtelik Analizi kapat\u0131ld\u0131',
+            'info'
+        );
+    });
+
     // Mock Tweet
     const mockInput = document.getElementById('mockTweetInput');
     const btnMock = document.getElementById('btnMockTweet');
@@ -271,12 +314,16 @@ function setupEventHandlers() {
 
         setButtonLoading(btnMock, true);
         try {
-            const result = await addMockTweet(text);
+            const result = await addMockTweet(text, sahtelikAnalizi);
             analyzedTweets.unshift(result);
             mockInput.value = '';
             updateAll();
             await loadRateLimit();
-            showToast('Tweet analiz edildi!', 'success');
+            const authMsg = result.authenticity
+                ? (result.authenticity.is_authentic === true ? ' \u2714 Ger\u00e7ek deprem do\u011fruland\u0131' :
+                   result.authenticity.is_authentic === false ? ' \u26a0 \u015e\u00fcpheli tweet' : '')
+                : '';
+            showToast(`Tweet analiz edildi!${authMsg}`, 'success');
         } catch (e) {
             showToast(e.message, 'error');
         }

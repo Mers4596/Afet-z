@@ -59,6 +59,7 @@ class AnalyzedTweet(BaseModel):
     analysis: Optional[TweetAnalysis] = None
     analyzed_at: Optional[str] = None
     error: Optional[str] = None
+    authenticity: Optional["AuthenticityResult"] = None
 
 
 # ─── API Response'ları ────────────────────────────────────
@@ -71,9 +72,18 @@ class TweetListResponse(BaseModel):
     tweets: list[AnalyzedTweet]
 
 
+class AuthenticityResult(BaseModel):
+    """AFAD deprem verisiyle sahtelik analizi sonucu."""
+    is_authentic: Optional[bool] = None
+    matched_earthquake: Optional[dict] = None
+    explanation: str = ""
+    checked_at: Optional[str] = None
+
+
 class AnalyzeRequest(BaseModel):
     """Tek bir tweeti analiz ettirmek için."""
     text: str
+    check_authenticity: bool = False
 
 
 class RateLimitStatus(BaseModel):
