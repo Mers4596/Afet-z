@@ -1188,6 +1188,200 @@ body {
     opacity: 1;
 }
 
+/* ── Baz İstasyonu Toggle Butonu ───────────────────────── */
+.cell-tower-toggle-btn {
+    border-top: 1px solid rgba(56, 189, 248, 0.12);
+}
+
+.cell-tower-toggle-btn.active-ct {
+    background: rgba(249, 115, 22, 0.15);
+    color: #fb923c;
+}
+
+.cell-tower-toggle-btn.active-ct svg {
+    opacity: 1;
+}
+
+/* ── Baz İstasyonu Etiketleri (Harita DivIcon) ─────────── */
+.cell-tower-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(3, 7, 18, 0.85);
+    border: 2px solid var(--ct-color, #38bdf8);
+    border-radius: 10px;
+    padding: 4px 8px;
+    min-width: 60px;
+    box-shadow: 0 0 10px var(--ct-ring, rgba(56,189,248,0.2)), 0 3px 10px rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    cursor: default;
+    animation: ct-pop-in 0.25s ease;
+    position: relative;
+}
+
+.cell-tower-label::after {
+    content: '▼';
+    position: absolute;
+    bottom: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 10px;
+    color: var(--ct-color, #38bdf8);
+    line-height: 1;
+}
+
+@keyframes ct-pop-in {
+    from { opacity: 0; transform: scale(0.8) translateY(-4px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.ct-count {
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 13px;
+    font-weight: 800;
+    color: var(--ct-color, #38bdf8);
+    line-height: 1.2;
+    letter-spacing: -0.5px;
+}
+
+.ct-sub {
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 8px;
+    font-weight: 500;
+    color: rgba(148, 163, 184, 0.8);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ── Yeni Tweet Kart Tasarımı ───────────────────────────── */
+.tweet-card {
+    background: var(--bg-card-solid);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-left: 3px solid var(--accent-cyan);
+    transition: var(--transition-fast);
+    animation: tweet-slide-in 0.3s ease;
+}
+
+.tweet-card:hover {
+    background: rgba(15, 23, 42, 0.95);
+    border-left-width: 4px;
+}
+
+.tweet-card.critical  { border-left-color: var(--accent-red); }
+.tweet-card.high      { border-left-color: var(--accent-orange); }
+.tweet-card.medium    { border-left-color: var(--accent-yellow); }
+.tweet-card.low       { border-left-color: var(--accent-green); }
+
+.tweet-card.tweet-fake {
+    opacity: 0.42;
+    filter: grayscale(0.3);
+    transition: opacity 0.3s ease, filter 0.3s ease;
+}
+
+.tweet-card.tweet-fake:hover {
+    opacity: 0.72;
+    filter: grayscale(0);
+}
+
+/* Header: avatar + kullanıcı + badge */
+.tc-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.tc-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    color: #fff;
+    flex-shrink: 0;
+    letter-spacing: 0.5px;
+}
+
+.tc-user {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.tc-username {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #7dd3fc;
+    white-space: nowrap;
+}
+
+.tc-verified {
+    color: #4ade80;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+.tc-location {
+    font-size: 0.65rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Tweet metni */
+.tc-body {
+    font-size: 0.8rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: #cbd5e1;
+    word-break: break-word;
+}
+
+/* Alt satır: doğrulama + ihtiyaç etiketleri */
+.tc-footer {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 7px;
+    flex-wrap: wrap;
+}
+
+.tc-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.tc-real {
+    background: rgba(34, 197, 94, 0.12);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.tc-fake {
+    background: rgba(239, 68, 68, 0.12);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
 /* ── Responsive ─────────────────────────────────────────── */
 @media (max-width: 1000px) {
     .main-grid {

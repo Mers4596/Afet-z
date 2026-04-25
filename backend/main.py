@@ -415,6 +415,56 @@ def export_full_pdf_report():
     except Exception:
         pass
 
+    # Baz istasyonu simülasyonu: şehir başına 2-3 baz
+    import math
+    import time
+
+    def _sim_bt(base: int, seed: str) -> int:
+        phase = sum(ord(c) for c in seed)
+        cycle = (2 * math.pi * (time.time() % 600)) / 600
+        return max(1, round(base * (1 + math.sin(cycle + phase * 0.7) * 0.30)))
+
+    _bt_templates: dict[str, list[str]] = {
+        'hatay':         ['Antakya Merkez Rezidans', 'Hatay Devlet Hastanesi', 'Defne Ticaret Merkezi'],
+        'kahramanmaras': ['KMaraş Şehir Hastanesi',  'Merkez Konut Bloğu-7',  'Elbistan AVM'],
+        'gaziantep':     ['Şahinbey Ticaret Merkezi','Gaziantep Şehir Hastanesi','Nurdağı Sanayi Sitesi'],
+        'adiyaman':      ['Adıyaman Çarşı Pasajı',   'Besni Konutları',        'Gölbaşı Mahalle Okulu'],
+        'malatya':       ['Yeşilyurt Sitesi',         'Malatya Devlet Hastanesi','Battalgazi Ticaret Hanı'],
+        'diyarbakir':    ['Tarihi Sur Konutları',     'Büyükşehir Kampüsü',    'Bağlar İş Hanı'],
+        'adana':         ['Seyhan Rezidans',          'Adana Şehir Hastanesi', 'Yüreğir Ticaret Merkezi'],
+        'osmaniye':      ['İnönü Apartmanı',          'Osmaniye Devlet Hastanesi','Kadirli Çarşısı'],
+        'elazig':        ['Elazığ Çarşısı',           'Fırat Üniv. Yerleşkesi','Sivrice Konutları'],
+        'nigde':         ['Niğde Merkez Sitesi',      'Bor Ticaret Hanı',      'Ulukışla İst. Mah.'],
+    }
+    _default_bt = ['Şehir Merkezi Binası', 'Devlet Hastanesi', 'Ticaret Hanı']
+
+    def _city_key(city: str) -> str:
+        tr_map = str.maketrans('şğıöüçŞĞİÖÜÇ', 'sgioucSGIOUC')
+        return city.translate(tr_map).lower().replace(' ', '')
+
+    # Şehir başına tweet sayısını bul
+    city_count: dict[str, int] = {}
+    for t in enriched:
+        an = (t.get('analysis') or {})
+        city = an.get('city', '') or ''
+        if city and city != 'Bilinmiyor':
+            city_count[city] = city_count.get(city, 0) + 1
+
+    baz_istasyonlari: list[dict] = []
+    for city, cnt in city_count.items():
+        key = _city_key(city)
+        tpls = _bt_templates.get(key, _default_bt)
+        tower_n = 3 if cnt >= 3 else 2
+        for t_idx in range(tower_n):
+            seed_id = f"{city}_bt_{t_idx}"
+            base = 100 + (hash(seed_id) % 400) + cnt * 30
+            baz_istasyonlari.append({
+                'name': city,
+                'building': tpls[t_idx] if t_idx < len(tpls) else tpls[0],
+                'base': base,
+                'current': _sim_bt(base, seed_id),
+            })
+
     # Geçici PDF dosyası
     tmp = tempfile.NamedTemporaryFile(
         suffix=".pdf", prefix="afetiz_rapor_", delete=False
@@ -426,6 +476,7 @@ def export_full_pdf_report():
             data={"tweets": enriched},
             output_path=tmp.name,
             ai_rapor=ai_text,
+            baz_istasyonlari=baz_istasyonlari,
         )
     except Exception as exc:
         os.unlink(tmp.name)

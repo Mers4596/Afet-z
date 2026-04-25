@@ -267,13 +267,36 @@ export async function exportToExcel(analyzedTweets) {
 // ══════════════════════════════════════════════════════════
 // PDF DIŞA AKTARIM
 // ══════════════════════════════════════════════════════════
-export async function exportToPDF(analyzedTweets, onProgress = () => { }) {
+export async function exportToPDF(analyzedTweets, cellTowers = [], onProgress = () => { }) {
     const valid = analyzedTweets.filter(t => t.analysis);
     if (valid.length === 0) {
         alert('Dışa aktarılacak analiz verisi yok. Önce tweet\'leri analiz edin.');
         return;
     }
 
+    // ── Önce backend WeasyPrint PDF'ini dene ──
+    onProgress('Profesyonel rapor oluşturuluyor (backend)...');
+    try {
+        const res = await fetch(`${API_BASE}/export/full-pdf-report`, { method: 'GET' });
+        if (res.ok && res.headers.get('content-type')?.includes('pdf')) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'afet_raporu.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            onProgress('');
+            return;
+        }
+    } catch (e) {
+        console.warn('Backend PDF başarısız, jsPDF fallback kullanılıyor:', e);
+    }
+
+    // ── Fallback: jsPDF ──
+    onProgress('Rapor hazırlanıyor...');
     const [JsPDF, html2canvas] = await Promise.all([loadJsPDF(), loadHtml2Canvas()]);
 
     // ── AI Raporu Çek ──
@@ -706,6 +729,69 @@ export async function exportToPDF(analyzedTweets, onProgress = () => { }) {
     doc.setFontSize(7.5);
     doc.setTextColor(71, 85, 105);
     doc.text('AfetIZ — Yapay Zeka Destekli Afet Yonetim Platformu', pageW / 2, pageH - 6, { align: 'center' });
+
+    // ── SAYFA 6: Baz İstasyonu Kişi Yoğunluğu ──────
+    if (cellTowers && cellTowers.length > 0) {
+        doc.addPage();
+        doc.setFillColor(15, 23, 42);
+        doc.rect(0, 0, pageW, pageH, 'F');
+
+        doc.setFontSize(13);
+        doc.setTextColor(248, 250, 252);
+        doc.setFont('helvetica', 'bold');
+        doc.text('BAZ ISTASYONU KISI YOGUNLUGU', margin, 16);
+        doc.setFillColor(249, 115, 22);
+        doc.rect(margin, 19, 80, 0.8, 'F');
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(148, 163, 184);
+        doc.text('Son 10 dakika oncesi sinyal verisinden simule edilmis tahmini kisi sayilari', margin, 25);
+
+        let by = 32;
+        const cols = { il: margin, bina: margin + 40, ref: margin + 110, guncel: margin + 140 };
+
+        doc.setFontSize(7.5);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(248, 250, 252);
+        doc.setFillColor(30, 41, 59);
+        doc.rect(margin, by - 4, contentW, 7, 'F');
+        doc.text('BOLGE', cols.il, by);
+        doc.text('BINA / PARSEL', cols.bina, by);
+        doc.text('REFERANS', cols.ref, by);
+        doc.text('GUNCELLEME', cols.guncel, by);
+        by += 5;
+
+        cellTowers.forEach((ct, idx) => {
+            if (by > pageH - 14) {
+                doc.addPage();
+                doc.setFillColor(15, 23, 42);
+                doc.rect(0, 0, pageW, pageH, 'F');
+                by = margin;
+            }
+            const isEven = idx % 2 === 0;
+            if (isEven) {
+                doc.setFillColor(22, 30, 50);
+                doc.rect(margin, by - 3.5, contentW, 6.5, 'F');
+            }
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(203, 213, 225);
+            doc.text(normTR(String(ct.name || '')).slice(0, 22), cols.il, by);
+            doc.text(normTR(String(ct.building || '')).slice(0, 30), cols.bina, by);
+            doc.setTextColor(56, 189, 248);
+            doc.text(String(ct.base), cols.ref, by);
+            const change = ct.current > ct.base ? '+' : '';
+            const ctColor = ct.current > ct.base * 1.2 ? [249, 115, 22] : [34, 197, 94];
+            doc.setTextColor(...ctColor);
+            doc.text(`${change}${ct.current}`, cols.guncel, by);
+            by += 6.5;
+        });
+
+        doc.setFontSize(7.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text('AfetIZ — Yapay Zeka Destekli Afet Yonetim Platformu', pageW / 2, pageH - 6, { align: 'center' });
+    }
 
     // ── Kaydet ──
     const now = new Date();

@@ -7,7 +7,7 @@
 
 import './style.css';
 import { fetchTweets, refreshTweets, fetchResults, fetchRateLimit, addMockTweet, analyzeTweet, fetchEarthquakes, fetchTrustedAccounts, addTrustedAccount, removeTrustedAccount, fetchRegionRisk, analyzeAll } from './api.js';
-import { initMap, updateMapWithResults, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
+import { initMap, updateMapWithResults, initCellTowerLayer, updateCellTowersFromCities, getCellTowerSnapshot, NEED_TYPE_LABELS, PRIORITY_COLORS } from './map.js';
 import { initCharts, updateCharts } from './charts.js';
 import { exportToExcel, exportToPDF } from './export.js';
 
@@ -240,7 +240,6 @@ function updateTweetFeed() {
     }
 
     container.innerHTML = valid
-        // En yeni önce: analyzed_at yoksa tweet_id'ye göre sırala
         .slice()
         .sort((a, b) => {
             const ta = a.analyzed_at || a.tweet_id || '';
@@ -251,72 +250,59 @@ function updateTweetFeed() {
         .map(tweet => {
         const a = tweet.analysis;
         const priority = a.map_priority || 'medium';
-        const needTags = (a.need_types || [])
-            .map(n => `<span class="need-tag">${NEED_TYPE_LABELS[n] || n}</span>`)
-            .join('');
 
-        // Sahtelik analizi badge
-        let authenticityBadge = '';
+        // Kullanıcı adı ve avatar
+        const username = tweet.author?.username || 'afet_kullanici';
+        const isTrusted = tweet.author?.is_trusted === true;
+        const initials = username.slice(0, 2).toUpperCase();
+        // Avatar rengi — kullanıcı adına göre deterministik
+        const avatarColors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#10b981', '#06b6d4'];
+        let ci = 0;
+        for (let i = 0; i < username.length; i++) ci += username.charCodeAt(i);
+        const avatarColor = avatarColors[ci % avatarColors.length];
+
+        // Konum
+        const location = a.district ? `${a.city} / ${a.district}` : a.city;
+
+        // Aciliyet etiketi
+        const urgencyLabel = getUrgencyLabel(a.urgency_score);
+
+        // Sahtelik durumu — sadece analiz edilmişse göster, tek satır
+        let statusLine = '';
         if (tweet.authenticity) {
             const auth = tweet.authenticity;
             if (auth.is_authentic === true) {
-                authenticityBadge = `<span class="auth-badge auth-real" title="${escapeHtml(auth.explanation)}"><i class="fas fa-check-circle"></i> Gerçek</span>`;
+                statusLine = `<span class="tc-status tc-real"><i class="fas fa-circle-check"></i> Doğrulandı</span>`;
             } else if (auth.is_authentic === false) {
-                authenticityBadge = `<span class="auth-badge auth-fake" title="${escapeHtml(auth.explanation)}"><i class="fas fa-exclamation-triangle"></i> Şüpheli</span>`;
-            } else {
-                authenticityBadge = `<span class="auth-badge auth-unknown" title="${escapeHtml(auth.explanation)}"><i class="fas fa-question-circle"></i> Doğrulanamadı</span>`;
+                statusLine = `<span class="tc-status tc-fake"><i class="fas fa-triangle-exclamation"></i> Şüpheli</span>`;
             }
         }
 
-        // Güven skoru badge
-        let trustBadge = '';
-        if (tweet.trust_score) {
-            const ts = tweet.trust_score;
-            const lvl = ts.score >= 70 ? 'trust-high' : ts.score >= 40 ? 'trust-mid' : 'trust-low';
-            trustBadge = `<span class="trust-badge ${lvl}" title="${escapeHtml(ts.explanation)}"><i class="fas fa-percent"></i> ${ts.score} güven</span>`;
-        }
-
-        // Kesin konum badge (sokak/bina seviyesi)
-        // TODO: Bu badge'e tıklanınca 3D bina modellemesi açılacak (gelecek sprint)
-        let preciseBadge = '';
-        if (a.has_precise_location) {
-            const addr = a.street_address ? ` — ${a.street_address}` : '';
-            preciseBadge = `<span class="precise-location-badge" title="Kesin konum mevcut${escapeHtml(addr)} · TODO: 3D modelleme">
-                <i class="fas fa-location-crosshairs"></i> Kesin Konum${addr ? ': ' + escapeHtml(a.street_address) : ''}
-            </span>`;
-        }
-
-        // Yazar badge (varsa)
-        let authorBadge = '';
-        if (tweet.author?.username) {
-            const isTr = tweet.author.is_trusted;
-            const followers = tweet.author.followers > 1000
-                ? `${(tweet.author.followers / 1000).toFixed(1)}K`
-                : String(tweet.author.followers);
-            const ageYears = (tweet.author.account_age_days / 365).toFixed(1);
-            const tooltip = isTr
-                ? 'Güvenilir Hesap'
-                : `Hesap yaşı: ${ageYears} yıl | Takipçi: ${followers}`;
-            authorBadge = `<span class="author-badge${isTr ? ' trusted' : ''}" title="${escapeHtml(tooltip)}">
-                ${isTr ? '<i class="fas fa-shield-check"></i>' : '<i class="fab fa-twitter"></i>'}
-                @${escapeHtml(tweet.author.username)}${isTr ? ' <i class="fas fa-star" style="font-size:0.6rem;color:#fbbf24;"></i>' : ''}
-            </span>`;
+        // İhtiyaç etiketleri — sadece kritik/acil için
+        let needRow = '';
+        if ((priority === 'critical' || priority === 'high') && (a.need_types || []).length > 0) {
+            const tags = (a.need_types || [])
+                .slice(0, 3)
+                .map(n => `<span class="need-tag">${NEED_TYPE_LABELS[n] || n}</span>`)
+                .join('');
+            needRow = `<div class="need-tags">${tags}</div>`;
         }
 
         const isFake = sahtelikAnalizi && tweet.authenticity?.is_authentic === false;
 
         return `
-        <div class="tweet-item ${priority}${isFake ? ' tweet-fake' : ''}">
-            <div class="tweet-text"><i class="fab fa-twitter" style="color:#1DA1F2;margin-right:4px;"></i>${escapeHtml(tweet.text)}</div>
-            <div class="tweet-meta">
-                <span><i class="fas fa-map-marker-alt"></i> ${a.city}${a.district ? ' / ' + a.district : ''}</span>
-                <span class="urgency-badge ${priority}">${getUrgencyLabel(a.urgency_score)}</span>
-                ${authenticityBadge}
-                ${trustBadge}
-                ${preciseBadge}
-                ${authorBadge}
+        <div class="tweet-card ${priority}${isFake ? ' tweet-fake' : ''}">
+            <div class="tc-header">
+                <div class="tc-avatar" style="background:${avatarColor};">${initials}</div>
+                <div class="tc-user">
+                    <span class="tc-username">@${escapeHtml(username)}</span>
+                    ${isTrusted ? '<span class="tc-verified" title="Güvenilir Hesap"><i class="fas fa-circle-check"></i></span>' : ''}
+                    <span class="tc-location"><i class="fas fa-location-dot"></i> ${escapeHtml(location)}</span>
+                </div>
+                <span class="urgency-badge ${priority}">${urgencyLabel}</span>
             </div>
-            ${needTags ? `<div class="need-tags">${needTags}</div>` : ''}
+            <div class="tc-body">${escapeHtml(tweet.text)}</div>
+            ${statusLine || needRow ? `<div class="tc-footer">${statusLine}${needRow}</div>` : ''}
         </div>`;
     }).join('');
 }
@@ -424,7 +410,9 @@ async function loadRateLimit() {
 function updateAll() {
     updateKPIs();
     updateTweetFeed();
-    updateMapWithResults(analyzedTweets.filter(t => t.analysis));
+    const withAnalysis = analyzedTweets.filter(t => t.analysis);
+    updateMapWithResults(withAnalysis);
+    updateCellTowersFromCities(withAnalysis);
     updateCharts(analyzedTweets);
 }
 
@@ -584,7 +572,7 @@ function setupEventHandlers() {
         setButtonLoading(btn, true);
         overlay?.classList.remove('hidden');
         try {
-            await exportToPDF(analyzedTweets, (msg) => {
+            await exportToPDF(analyzedTweets, getCellTowerSnapshot(), (msg) => {
                 if (progressText) progressText.textContent = msg || 'Tamamlandı...';
             });
             showToast('PDF raporu indirildi', 'success');
@@ -671,6 +659,7 @@ async function init() {
     loadPersistedState();   // localStorage'dan state'i yükle
     renderApp();
     initMap();
+    initCellTowerLayer();
     await initCharts();
     setupEventHandlers();
     restoreToggleUI();      // Checkbox'ı kayıtlı state'e ayarla

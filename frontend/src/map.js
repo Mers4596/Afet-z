@@ -45,6 +45,249 @@ let map = null;
 let heatLayer = null;
 let markerGroup = null;
 
+// ── Baz İstasyonu Simülasyonu ──────────────────────────────
+let cellTowerGroup = null;
+let cellTowerTimer = null;
+let cellTowerVisible = true;
+
+// Aktif simülasyon zonları (updateCellTowersFromCities ile doldurulur)
+let _activeCellZones = [];
+
+// Şehir başına bina şablonları (2-3 ad per city)
+const BUILDING_TEMPLATES_BY_CITY = {
+    'adana': ['Seyhan Rezidans', 'Adana Şehir Hastanesi', 'Yüreğir Ticaret Merkezi'],
+    'adiyaman': ['Adıyaman Çarşı Pasajı', 'Besni Konutları', 'Gölbaşı Mahalle Okulu'],
+    'afyonkarahisar': ['Afyon Termal Otel', 'Sandıklı Konutları', 'Dumlupınar Üniversitesi'],
+    'agri': ['Ağrı Dağı Konakları', 'Patnos İş Merkezi', 'Doğubayazıt Çarşısı'],
+    'amasya': ['Yeşilırmak Yalı Boyu', 'Merzifon OSB', 'Amasya Devlet Hastanesi'],
+    'ankara': ['Çankaya Ofis Kulesi', 'Keçiören Mahalle Bloğu', 'Mamak Konut Sitesi'],
+    'antalya': ['Lara Tatil Köyü', 'Konyaaltı Sahil Konutları', 'Muratpaşa İş Merkezi'],
+    'artvin': ['Hopa Liman İşletmesi', 'Artvin Orman Bölge', 'Borçka Konutları'],
+    'aydin': ['Kuşadası Yazlıkları', 'Aydın Tekstil Fabrikası', 'Nazilli Çarşı'],
+    'balikesir': ['Edremit Körfez Sitesi', 'Balıkesir Sanayi Odası', 'Bandırma Lojistik'],
+    'bilecik': ['Bilecik Seramik Fabrikası', 'Bozüyük Toki', 'Söğüt Kültür Merkezi'],
+    'bingol': ['Bingöl Kayak Merkezi', 'Genç Caddesi İş Hanı', 'Solhan Devlet Hastanesi'],
+    'bitlis': ['Tatvan İskelesi', 'Ahlat Taş Konakları', 'Bitlis Eren Üniv.'],
+    'bolu': ['Abant Dağ Evleri', 'Bolu Tünel Tesisleri', 'Gerede Deri Sanayi'],
+    'burdur': ['Burdur Şeker Fabrikası', 'Bucak İş Merkezi', 'Salda Turizm Tesisleri'],
+    'bursa': ['Osmangazi Tekstil', 'Nilüfer Rezidansları', 'İnegöl Mobilya AVM'],
+    'canakkale': ['18 Mart Yerleşkesi', 'Gelibolu Konutları', 'Çanakkale Liman'],
+    'cankiri': ['Çankırı Tuz Madeni', 'Ilgaz Dağ Tesisi', 'Orta Mahalle Konutları'],
+    'corum': ['Çorum Leblebi Fabrikası', 'Sungurlu OSB', 'Kargı Devlet Hastanesi'],
+    'denizli': ['Pamukkale Tekstil', 'Denizli OSB', 'Merkezefendi Rezidans'],
+    'diyarbakir': ['Tarihi Sur Konutları', 'Büyükşehir Kampüsü', 'Bağlar İş Hanı'],
+    'edirne': ['Selimiye Arasta', 'Keşan İş Merkezi', 'Edirne Devlet Hastanesi'],
+    'elazig': ['Elazığ Çarşısı', 'Fırat Üniv. Yerleşkesi', 'Sivrice Konutları'],
+    'erzincan': ['Erzincan Bakır Çarşısı', 'Tercan Konutları', 'Refahiye İş Merkezi'],
+    'erzurum': ['Palandöken Oteli', 'Atatürk Üniversitesi', 'Yakutiye İş Merkezi'],
+    'eskisehir': ['Odunpazarı Evleri', 'Anadolu Üniv. Kampüsü', 'Eskişehir OSB'],
+    'gaziantep': ['Şahinbey Ticaret Merkezi', 'Gaziantep Şehir Hastanesi', 'Nurdağı Sanayi Sitesi'],
+    'giresun': ['Giresun Fındık Fabrikası', 'Bulancak Sanayi', 'Espiye Konutları'],
+    'gumushane': ['Gümüşhane Maden İşletmesi', 'Kelkit Tarım Merkezi', 'Köse Konutları'],
+    'hakkari': ['Yüksekova Havalimanı', 'Hakkari Devlet Hastanesi', 'Şemdinli Çarşısı'],
+    'hatay': ['Antakya Merkez Rezidans', 'Hatay Devlet Hastanesi', 'Defne Ticaret Merkezi'],
+    'isparta': ['Isparta Gül Fabrikası', 'Eğirdir Tatil Sitesi', 'Süleyman Demirel Üniv.'],
+    'mersin': ['Mersin Liman Kulesi', 'Mezitli Sahil Sitesi', 'Tarsus Sanayi'],
+    'istanbul': ['Kadıköy İş Merkezi', 'Pendik Rezidans', 'Sultanbeyli Konut'],
+    'izmir': ['Konak Çarşısı', 'Bornova Üniv. Sitesi', 'Karşıyaka Rezidans'],
+    'kars': ['Kars Kalesi Konakları', 'Sarıkamış Kayak Merkezi', 'Digor İş Hanı'],
+    'kastamonu': ['İnebolu Limanı', 'Tosya Pirinç Fabrikası', 'Kastamonu Valilik'],
+    'kayseri': ['Kayseri OSB Fabrika', 'Erciyes Üniversitesi', 'Melikgazi Rezidans'],
+    'kirklareli': ['Lüleburgaz Fabrikaları', 'Babaeski Konutları', 'Kırklareli OSB'],
+    'kirsehir': ['Kırşehir Termal Tesis', 'Mucur İş Hanı', 'Kaman Konutları'],
+    'kocaeli': ['Gebze Teknoloji Kampüsü', 'İzmit Petrokimya', 'Kartepe Konutları'],
+    'konya': ['Selçuklu Konut Kompleksi', 'Konya Şehir Hastanesi', 'Karatay Sanayi'],
+    'kutahya': ['Kütahya Seramik Fabrikası', 'Tavşanlı Linyit', 'Gediz Konutları'],
+    'malatya': ['Yeşilyurt Sitesi', 'Malatya Devlet Hastanesi', 'Battalgazi Ticaret Hanı'],
+    'manisa': ['Manisa Vestel City', 'Akhisar Zeytin İşleme', 'Turgutlu OSB'],
+    'kahramanmaras': ['KMaraş Şehir Hastanesi', 'Merkez Konut Bloğu-7', 'Elbistan AVM'],
+    'mardin': ['Artuklu Taş Evleri', 'Kızıltepe Hububat Merkezi', 'Mardin OSB'],
+    'mugla': ['Bodrum Marina Evleri', 'Marmaris Otel Kampüsü', 'Fethiye Tatil Köyü'],
+    'mus': ['Muş Ovası Tarım İşletmesi', 'Malazgirt Konutları', 'Varto Devlet Hastanesi'],
+    'nevsehir': ['Ürgüp Kaya Otel', 'Kapadokya Müze Binası', 'Avanos Atölyeleri'],
+    'nigde': ['Niğde Merkez Sitesi', 'Bor Ticaret Hanı', 'Ulukışla İst. Mah.'],
+    'ordu': ['Fındık İşleme Tesisi', 'Ünye Liman Deposu', 'Fatsa Sanayi'],
+    'rize': ['Rize Çay Fabrikası', 'Ardeşen Konutları', 'Pazar İş Merkezi'],
+    'sakarya': ['Adapazarı Otomotiv Fabrikası', 'Serdivan Rezidans', 'Sapanca Villaları'],
+    'samsun': ['Samsun Liman Lojistik', 'Atakum Sahil Blokları', 'Bafra Tarım İşletmesi'],
+    'siirt': ['Siirt Fıstık İşleme', 'Kurtalan Devlet Hastanesi', 'Pervari Konutları'],
+    'sinop': ['Sinop Tersanesi', 'Boyabat Tuğla Fabrikası', 'Ayancık Orman İşletme'],
+    'sivas': ['Sivas Demir Çelik', 'Cumhuriyet Üniv. Hastanesi', 'Şarkışla Konutları'],
+    'tekirdag': ['Çorlu Tekstil Fabrikası', 'Çerkezköy OSB', 'Süleymanpaşa Liman'],
+    'tokat': ['Tokat Gaziosmanpaşa Üniv.', 'Erbaa Sanayi', 'Niksar İş Hanı'],
+    'trabzon': ['Trabzon Liman İşletmesi', 'Akçaabat Konutları', 'KTÜ Yerleşkesi'],
+    'tunceli': ['Munzur Su Fabrikası', 'Ovacık Konutları', 'Tunceli Devlet Hastanesi'],
+    'sanliurfa': ['Balıklıgöl Çarşı İş Hanı', 'Harran Konukevi', 'Viranşehir Tarım OSB'],
+    'usak': ['Uşak Battaniye Fabrikası', 'Eşme Konutları', 'Uşak OSB'],
+    'van': ['Van Gölü İskelesi', 'Edremit Sahil Evleri', 'Erciş İş Merkezi'],
+    'yozgat': ['Yozgat Şehir Hastanesi', 'Sorgun Kömür İşletme', 'Yerköy Konutları'],
+    'zonguldak': ['TTK Maden Tesisleri', 'Ereğli Demir Çelik', 'Zonguldak Limanı'],
+    'aksaray': ['Aksaray Mercedes Fabrikası', 'Ihlara Turizm Tesisi', 'Eskil Tarım'],
+    'bayburt': ['Bayburt Taşı İşleme', 'Aydıntepe Konutları', 'Demirözü İş Hanı'],
+    'karaman': ['Karaman Bisküvi Fabrikası', 'Ermenek Konutları', 'Karamanoğlu Mehmet Bey Üniv.'],
+    'kirikkale': ['MKE Fabrikaları', 'Yahşihan Öğrenci Evleri', 'Kırıkkale Rafinerisi'],
+    'batman': ['Batman Petrol Rafinerisi', 'Hasankeyf Müzesi', 'Kozluk Konutları'],
+    'sirnak': ['Cizre Sınır Kapısı', 'Silopi Lojistik Merkezi', 'Şırnak Valilik'],
+    'bartin': ['Bartın Liman Tesisleri', 'Amasra Turizm Oteli', 'Ulus Konutları'],
+    'ardahan': ['Ardahan Kalesi Çarşısı', 'Göle Tarım Merkezi', 'Posof Devlet Hastanesi'],
+    'igdir': ['Iğdır Kayısı Fabrikası', 'Aralık Sınır Ticaret', 'Tuzluca İş Hanı'],
+    'yalova': ['Yalova Tersaneler Bölgesi', 'Çınarcık Yazlıkları', 'Termal Otel Kampüsü'],
+    'karabuk': ['Kardemir Fabrikaları', 'Safranbolu Tarihi Konak', 'Eskipazar OSB'],
+    'kilis': ['Kilis Zeytin İşleme', 'Elbeyli Konutları', 'Polateli Sanayi'],
+    'osmaniye': ['İnönü Apartmanı', 'Osmaniye Devlet Hastanesi', 'Kadirli Çarşısı'],
+    'duzce': ['Düzce Mobilya Sanayi', 'Akçakoca Turizm Tesisleri', 'Gümüşova OSB']
+};
+const BUILDING_TEMPLATES_DEFAULT = ['Şehir Merkezi Binası', 'Devlet Hastanesi', 'Ticaret Hanı'];
+
+/**
+ * Türkçe şehir adını ASCII'ye indirge (template sözlüğü için)
+ */
+function _cityKey(city) {
+    return city.toLowerCase()
+        .replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ı/g, 'i')
+        .replace(/ö/g, 'o').replace(/ü/g, 'u').replace(/ç/g, 'c')
+        .replace(/\s+/g, '');
+}
+
+/**
+ * Analiz edilmiş tweet'lerden dinamik baz istasyonu zonları oluştur.
+ * Her ilde tweet yoğunluğuna göre 2-3 baz istasyonu üretilir.
+ */
+function buildCellTowerZones(analyzedTweets) {
+    const cityMap = {};
+    analyzedTweets.forEach(tweet => {
+        const city = tweet.analysis && tweet.analysis.city;
+        if (!city || city === 'Bilinmiyor') return;
+        if (!cityMap[city]) cityMap[city] = { count: 0, district: tweet.analysis.district || '' };
+        cityMap[city].count++;
+    });
+
+    const zones = [];
+    Object.entries(cityMap).forEach(([city, info], ci) => {
+        const coords = getCityCoords(city);
+        const tpl = BUILDING_TEMPLATES_BY_CITY[_cityKey(city)] || BUILDING_TEMPLATES_DEFAULT;
+        const towerCount = info.count >= 3 ? 3 : 2;
+
+        for (let t = 0; t < towerCount; t++) {
+            const seedId = `${city}_bt_${t}`;
+            const off = deterministicOffset(seedId);
+            const base = 100 + Math.round((Math.abs(off.dLat * 1e4) % 400)) + info.count * 30;
+            zones.push({
+                id: `dyn_${ci}_${t}`,
+                name: city + (info.district ? ' / ' + info.district : ''),
+                lat: coords[0] + off.dLat * 0.6,
+                lng: coords[1] + off.dLng * 0.7,
+                building: tpl[t] || tpl[0],
+                base,
+                city,
+            });
+        }
+    });
+    return zones;
+}
+
+/** Deterministic gürültü üreteci — sinüs bazlı döngüsel varyasyon */
+function _simulatePeopleCount(baseCount, id, nowMs) {
+    let phase = 0;
+    for (let i = 0; i < id.length; i++) phase += id.charCodeAt(i);
+    const cycle = (2 * Math.PI * (nowMs % 600000)) / 600000;
+    const variation = Math.sin(cycle + phase * 0.7) * 0.30;
+    return Math.max(1, Math.round(baseCount * (1 + variation)));
+}
+
+/** Baz istasyonu marker'larını oluştur/güncelle */
+function _refreshCellTowers() {
+    if (!map || !cellTowerGroup) return;
+    cellTowerGroup.clearLayers();
+    const now = Date.now();
+
+    _activeCellZones.forEach(zone => {
+        const count = _simulatePeopleCount(zone.base, zone.id, now);
+        const danger = count > zone.base * 1.2 ? 'high' : count < zone.base * 0.6 ? 'low' : 'normal';
+        const color = danger === 'high' ? '#f97316' : danger === 'low' ? '#22c55e' : '#38bdf8';
+        const ringColor = danger === 'high' ? 'rgba(249,115,22,0.35)' : 'rgba(56,189,248,0.2)';
+
+        const icon = L.divIcon({
+            className: '',
+            html: `<div class="cell-tower-label" style="--ct-color:${color}; --ct-ring:${ringColor};">
+                <div class="ct-count">${count.toLocaleString('tr-TR')}</div>
+                <div class="ct-sub">kişi</div>
+            </div>`,
+            iconAnchor: [30, 30],
+        });
+
+        const marker = L.marker([zone.lat, zone.lng], { icon });
+        marker.bindPopup(`
+            <div style="font-family:Inter,sans-serif;font-size:12px;min-width:180px;">
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px;">
+                    <span style="color:${color};">▼</span> ${zone.building}
+                </div>
+                <div style="color:#94a3b8;font-size:11px;margin-bottom:6px;">${zone.name}</div>
+                <hr style="border-color:#334155;margin:4px 0;">
+                <div><b>Tahmini Kişi:</b> <span style="color:${color};font-weight:700;">${count.toLocaleString('tr-TR')}</span></div>
+                <div style="margin-top:2px;"><b>Referans (10 dk önce):</b> ${zone.base.toLocaleString('tr-TR')}</div>
+                <div style="margin-top:4px;color:#64748b;font-size:10px;">🗼 Baz istasyonu sinyalinden simüle edilmiştir</div>
+            </div>
+        `);
+        cellTowerGroup.addLayer(marker);
+
+        const ring = L.circleMarker([zone.lat, zone.lng], {
+            radius: 14,
+            fillColor: color,
+            fillOpacity: 0.08,
+            color: color,
+            weight: 1.2,
+            opacity: 0.45,
+            interactive: false,
+        });
+        cellTowerGroup.addLayer(ring);
+    });
+}
+
+/** Baz istasyonu katmanını başlat (harita init sonrası çağrılır) */
+export function initCellTowerLayer() {
+    if (!map) return;
+    cellTowerGroup = L.layerGroup().addTo(map);
+    cellTowerTimer = setInterval(_refreshCellTowers, 10 * 60 * 1000);
+}
+
+/**
+ * Analiz sonuçlarına göre baz istasyonlarını güncelle.
+ * updateMapWithResults çağrısının ardından çağrılır.
+ */
+export function updateCellTowersFromCities(analyzedTweets) {
+    _activeCellZones = buildCellTowerZones(analyzedTweets);
+    if (cellTowerGroup && cellTowerVisible) _refreshCellTowers();
+}
+
+/**
+ * Güncel baz istasyonu verilerini PDF için döndür.
+ */
+export function getCellTowerSnapshot() {
+    const now = Date.now();
+    return _activeCellZones.map(zone => ({
+        name: zone.name,
+        building: zone.building,
+        city: zone.city,
+        base: zone.base,
+        current: _simulatePeopleCount(zone.base, zone.id, now),
+    }));
+}
+
+/** Baz istasyonu katmanını aç/kapat — toggle butonu için */
+export function toggleCellTowerLayer() {
+    if (!map || !cellTowerGroup) return;
+    if (map.hasLayer(cellTowerGroup)) {
+        map.removeLayer(cellTowerGroup);
+        cellTowerVisible = false;
+    } else {
+        map.addLayer(cellTowerGroup);
+        cellTowerVisible = true;
+        _refreshCellTowers();
+    }
+    return cellTowerVisible;
+}
+
 /**
  * tweet_id string'inden deterministik [-0.5, 0.5] aralığında iki sabit değer üretir.
  * Aynı tweet_id her zaman aynı koordinat offsetini verir — harita yenilenince noktalar kaymaaz.
@@ -133,22 +376,38 @@ function _addModeControl() {
                     </svg>
                     Isı Haritası
                 </button>
+                <button class="map-mode-btn cell-tower-toggle-btn active-ct" id="mapBtnCellTower" title="Baz istasyonu kişi sayıları (10 dk güncelleme)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M1.293 7.707a1 1 0 0 1 0-1.414 10 10 0 0 1 14.142 0 1 1 0 1 1-1.414 1.414 8 8 0 0 0-11.314 0 1 1 0 0 1-1.414 0zM5.05 11.464a1 1 0 0 1 0-1.414 6 6 0 0 1 8.485 0 1 1 0 1 1-1.414 1.414 4 4 0 0 0-5.657 0 1 1 0 0 1-1.414 0zM9 16a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"/>
+                    </svg>
+                    Baz İst.
+                </button>
             `;
 
             // Leaflet click-propagation'ı durdur (harita sürüklenmesini engeller)
             L.DomEvent.disableClickPropagation(container);
             L.DomEvent.disableScrollPropagation(container);
 
-            container.querySelectorAll('.map-mode-btn').forEach(btn => {
+            container.querySelectorAll('.map-mode-btn[data-mode]').forEach(btn => {
                 L.DomEvent.on(btn, 'click', () => {
                     if (btn.dataset.mode === mapMode) return;
                     mapMode = btn.dataset.mode;
-                    container.querySelectorAll('.map-mode-btn')
+                    container.querySelectorAll('.map-mode-btn[data-mode]')
                         .forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
                     _applyMode();
                 });
             });
+
+            // Baz istasyonu toggle
+            const ctBtn = container.querySelector('#mapBtnCellTower');
+            if (ctBtn) {
+                L.DomEvent.on(ctBtn, 'click', () => {
+                    const visible = toggleCellTowerLayer();
+                    ctBtn.classList.toggle('active-ct', visible);
+                    ctBtn.style.opacity = visible ? '1' : '0.45';
+                });
+            }
 
             return container;
         },

@@ -1036,6 +1036,57 @@ h3 {
     <div class="section-footer">AfetIZ — {{ rapor_tarihi }} &nbsp;|&nbsp; Bu rapor yapay zeka destekli olarak üretilmiştir.</div>
 </div>
 
+{# ════════════════════════════════════════════════════════ #}
+{# SAYFA 7: BAZ İSTASYONU KİŞİ YOĞUNLUĞU                  #}
+{# ════════════════════════════════════════════════════════ #}
+{%- if baz_istasyonlari %}
+<div>
+    <h2>BAZ İSTASYONU KİŞİ YOĞUNLUĞU</h2>
+    <p style="font-size:9pt;color:#475569;margin-bottom:12px;">
+        Baz istasyonu sinyal verilerinden simüle edilen anlık kişi yoğunluğu tahmini.
+        Deprem öncesi 10 dakikalık referans değerleri ile karşılaştırmalı gösterilmektedir.
+    </p>
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Bölge</th>
+                <th>Bina / Parsel</th>
+                <th>Referans (10 dk önce)</th>
+                <th>Güncel Tahmini</th>
+                <th>Değişim</th>
+            </tr>
+        </thead>
+        <tbody>
+            {%- for bt in baz_istasyonlari %}
+            <tr>
+                <td><strong>{{ bt.name }}</strong></td>
+                <td>{{ bt.building }}</td>
+                <td style="text-align:center;">{{ bt.base }}</td>
+                <td style="text-align:center;font-weight:700;
+                    {%- if bt.current > bt.base * 1.2 %} color:#F97316;
+                    {%- elif bt.current < bt.base * 0.6 %} color:#10B981;
+                    {%- else %} color:#3B82F6;{%- endif %}">
+                    {{ bt.current }}
+                </td>
+                <td style="text-align:center;font-size:8.5pt;
+                    {%- if bt.current > bt.base %} color:#DC2626;{%- else %} color:#10B981;{%- endif %}">
+                    {%- set diff = bt.current - bt.base %}
+                    {%- if diff > 0 %}▲ +{{ diff }}{%- else %}▼ {{ diff }}{%- endif %}
+                </td>
+            </tr>
+            {%- endfor %}
+        </tbody>
+    </table>
+
+    <p style="font-size:8pt;color:#94A3B8;margin-top:10px;">
+        * Veriler GSM baz istasyonu sinyal yoğunluğundan elde edilen istatistiksel tahmini içermektedir.
+        Gerçek kişi sayıları farklılık gösterebilir.
+    </p>
+    <div class="section-footer">AfetIZ — {{ rapor_tarihi }}</div>
+</div>
+{%- endif %}
+
 </body>
 </html>
 """
@@ -1193,6 +1244,7 @@ def rapor_olustur(
     data: dict,
     output_path: str = "afet_raporu.pdf",
     ai_rapor: str = "",
+    baz_istasyonlari: list | None = None,
 ) -> str:
     """
     Afet kriz raporunu PDF olarak oluşturur.
@@ -1254,6 +1306,7 @@ def rapor_olustur(
         chart_il           = chart_il,
         chart_pasta        = chart_pasta,
         chart_aciliyet     = chart_aciliyet,
+        baz_istasyonlari   = baz_istasyonlari or [],
     )
 
     # ── WeasyPrint ile PDF'e dönüştür ────────────────────
