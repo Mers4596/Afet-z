@@ -274,9 +274,9 @@ function updateTweetFeed() {
         const priority = a.map_priority || 'medium';
 
         // Kullanıcı adı ve avatar
-        const username = tweet.author?.username || 'afet_kullanici';
+        const username = tweet.author?.username || 'afetiz_bildirim';
         const isTrusted = tweet.author?.is_trusted === true;
-        const initials = username.slice(0, 2).toUpperCase();
+        const initials = (tweet.author?.username ? tweet.author.username.slice(0, 2) : 'AI').toUpperCase();
         // Avatar rengi — kullanıcı adına göre deterministik
         const avatarColors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#10b981', '#06b6d4'];
         let ci = 0;

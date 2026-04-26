@@ -34,6 +34,7 @@ from app.models import (
     RateLimitStatus,
     TrustedAccountRequest,
     CrisisReportRequest,
+    UserProfile,
 )
 from app.rate_limiter import RateLimiter
 from app.gemini_service import GeminiService
@@ -192,8 +193,9 @@ def analyze_single_tweet(req: AnalyzeRequest):
         analysis=analysis,
         error=error,
         authenticity=authenticity,
+        author=UserProfile(username="manuel_analiz", author_id="manual")
     )
-    db.save_analysis("manual", req.text, analysis, error)
+    db.save_analysis("manual", req.text, analysis, error, author_id="manual", author_username="manuel_analiz")
 
     city_counts = db.get_city_tweet_counts()
     result = _enrich_with_trust(result, city_counts=city_counts)
@@ -215,8 +217,19 @@ def analyze_all_cached():
             text=tweet.text,
             analysis=analysis,
             error=error,
+            author=tweet.user_profile or (
+                UserProfile(username=tweet.author_username, author_id=tweet.author_id)
+                if tweet.author_username else None
+            )
         )
-        db.save_analysis(tweet.tweet_id, tweet.text, analysis, error)
+        db.save_analysis(
+            tweet.tweet_id,
+            tweet.text,
+            analysis,
+            error,
+            author_id=tweet.author_id or "",
+            author_username=tweet.author_username or ""
+        )
         results.append(analyzed)
 
         # Rate limit durumunu kontrol et
@@ -282,8 +295,9 @@ def add_mock_tweet(req: AnalyzeRequest):
         analysis=analysis,
         error=error,
         authenticity=authenticity,
+        author=UserProfile(username="mock_user", author_id="mock")
     )
-    db.save_analysis(tweet_id, req.text, analysis, error)
+    db.save_analysis(tweet_id, req.text, analysis, error, author_id="mock", author_username="mock_user")
 
     city_counts = db.get_city_tweet_counts()
     analyzed = _enrich_with_trust(analyzed, city_counts=city_counts)

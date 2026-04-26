@@ -133,7 +133,12 @@ class TweetService:
             if tweets.data:
                 new_tweets = []
                 for t in reversed(tweets.data):
-                    tweet_data = TweetData(tweet_id=str(t.id), text=t.text)
+                    tweet_data = TweetData(
+                        tweet_id=str(t.id),
+                        text=t.text,
+                        author_id=user_id,
+                        author_username=self.username
+                    )
                     new_tweets.append(tweet_data)
                     self._last_id = str(t.id)
 
