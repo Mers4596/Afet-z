@@ -11,6 +11,8 @@ import { initMap, updateMapWithResults, initCellTowerLayer, updateCellTowersFrom
 import { initCharts, updateCharts } from './charts.js';
 import { exportToExcel, exportToPDF } from './export.js';
 
+const API_BASE = 'http://localhost:8000';
+
 // ── State ──────────────────────────────────────────────────
 let analyzedTweets = [];
 let rawTweets = [];
@@ -58,9 +60,34 @@ function renderApp() {
         <!-- Header -->
         <div class="header">
             <div class="logo">
-                <i class="fas fa-chart-line"></i>
-                <h1>AFETİZ</h1>
-                <span class="header-badge">KRİZ İZLEME</span>
+                <div class="logo-icon">
+                    <svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <defs>
+                            <linearGradient id="sg" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#38bdf8"/>
+                                <stop offset="100%" stop-color="#ef4444"/>
+                            </linearGradient>
+                            <filter id="gw" x="-30%" y="-30%" width="160%" height="160%">
+                                <feGaussianBlur stdDeviation="1.8" result="b"/>
+                                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                            </filter>
+                        </defs>
+                        <!-- Shield -->
+                        <path d="M22 3L37 9.5V21C37 31 22 41 22 41C22 41 7 31 7 21V9.5Z"
+                              fill="url(#sg)" fill-opacity="0.12"
+                              stroke="url(#sg)" stroke-width="1.4" filter="url(#gw)"/>
+                        <!-- Pulse line -->
+                        <polyline points="10,22 14,22 16.5,14 19,30 21,17.5 23,26 25.5,22 34,22"
+                                  stroke="#38bdf8" stroke-width="2.2" fill="none"
+                                  stroke-linecap="round" stroke-linejoin="round" filter="url(#gw)"/>
+                        <!-- Alert dot -->
+                        <circle cx="34" cy="22" r="2.5" fill="#ef4444" filter="url(#gw)"/>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <span class="logo-title">AFETİZ</span>
+                    <span class="logo-sub">KRİZ İZLEME PLATFORMU</span>
+                </div>
             </div>
             <div class="header-right">
                 <div class="rate-limit-badge" id="rateLimitBadge" title="Gemini API Rate Limit">
@@ -94,23 +121,18 @@ function renderApp() {
                 </span>
             </div>
             <div class="toolbar-separator"></div>
-            <div class="tweet-input-group">
-                <input type="text" class="tweet-input" id="mockTweetInput"
-                    placeholder="Demo tweet yaz... (ör: Antakya'da enkaz altında yaralılar var, acil yardım)">
-                <button class="btn btn--primary" id="btnMockTweet" title="Demo tweet ekle ve analiz et">
-                    <i class="fas fa-paper-plane"></i> Gönder
-                </button>
-            </div>
-            <div class="toolbar-separator"></div>
             <button class="btn btn--trusted" id="btnTrustedAccounts" title="Güvenilir hesapları yönet">
                 <i class="fas fa-shield-halved"></i> Güvenilir Hesaplar
             </button>
-            <div class="toolbar-separator"></div>
+            <div class="toolbar-spacer"></div>
             <button class="btn btn--export" id="btnExportExcel" title="Verileri Excel olarak indir">
                 <i class="fas fa-file-excel"></i> Excel
             </button>
             <button class="btn btn--export btn--export-pdf" id="btnExportPDF" title="Harita, grafikler ve AI analizi ile PDF raporu oluştur">
                 <i class="fas fa-file-pdf"></i> PDF Raporu
+            </button>
+            <button class="btn btn--telegram" id="btnSendTelegram" title="PDF raporunu Afetiz Telegram kanalına gönder">
+                <i class="fab fa-telegram"></i> Telegram
             </button>
         </div>
 
@@ -278,6 +300,33 @@ function updateTweetFeed() {
             }
         }
 
+        // Güven skoru badge
+        let trustBadge = '';
+        if (tweet.trust_score && typeof tweet.trust_score.score === 'number') {
+            const ts = tweet.trust_score;
+            const s = Math.round(ts.score);
+            const trustClass = s >= 70 ? 'trust-high' : s >= 40 ? 'trust-mid' : 'trust-low';
+            const userComp   = Math.round(ts.user_score * 0.4);
+            const afadComp   = Math.round(ts.afad_boost);
+            const clusterComp = Math.round(ts.cluster_boost);
+            const tooltipRows = [
+                `<div class="tc-tt-row"><span>Kullanıcı profili</span><span>+${userComp}</span></div>`,
+                afadComp   > 0 ? `<div class="tc-tt-row tc-tt-accent"><span>AFAD eşleşmesi</span><span>+${afadComp}</span></div>` : '',
+                clusterComp > 0 ? `<div class="tc-tt-row"><span>Bölge kümesi</span><span>+${clusterComp}</span></div>` : '',
+                `<div class="tc-tt-sep"></div>`,
+                `<div class="tc-tt-row tc-tt-total"><span>Toplam</span><span>${s}/100</span></div>`,
+            ].join('');
+            trustBadge = `
+            <div class="tc-trust ${trustClass}">
+                <div class="tc-trust-label"><i class="fas fa-shield-halved"></i> ${s}</div>
+                <div class="tc-trust-tooltip">
+                    <div class="tc-tt-title">Güvenilirlik Skoru</div>
+                    ${tooltipRows}
+                    ${ts.explanation ? `<div class="tc-tt-note">${escapeHtml(ts.explanation)}</div>` : ''}
+                </div>
+            </div>`;
+        }
+
         // İhtiyaç etiketleri — sadece kritik/acil için
         let needRow = '';
         if ((priority === 'critical' || priority === 'high') && (a.need_types || []).length > 0) {
@@ -299,7 +348,10 @@ function updateTweetFeed() {
                     ${isTrusted ? '<span class="tc-verified" title="Güvenilir Hesap"><i class="fas fa-circle-check"></i></span>' : ''}
                     <span class="tc-location"><i class="fas fa-location-dot"></i> ${escapeHtml(location)}</span>
                 </div>
-                <span class="urgency-badge ${priority}">${urgencyLabel}</span>
+                <div class="tc-header-right">
+                    ${trustBadge}
+                    <span class="urgency-badge ${priority}">${urgencyLabel}</span>
+                </div>
             </div>
             <div class="tc-body">${escapeHtml(tweet.text)}</div>
             ${statusLine || needRow ? `<div class="tc-footer">${statusLine}${needRow}</div>` : ''}
@@ -474,42 +526,6 @@ function setupEventHandlers() {
         );
     });
 
-    // Mock Tweet
-    const mockInput = document.getElementById('mockTweetInput');
-    const btnMock = document.getElementById('btnMockTweet');
-
-    async function sendMockTweet() {
-        const text = mockInput?.value?.trim();
-        if (!text) return;
-
-        setButtonLoading(btnMock, true);
-        try {
-            const result = await addMockTweet(text, sahtelikAnalizi);
-            // Authenticity'i cache'e kaydet
-            if (result.authenticity && result.tweet_id) {
-                authCache[result.tweet_id] = result.authenticity;
-                persistAuthCache();
-            }
-            analyzedTweets.unshift(result);
-            mockInput.value = '';
-            updateAll();
-            await loadRateLimit();
-            const authMsg = result.authenticity
-                ? (result.authenticity.is_authentic === true ? ' \u2714 Ger\u00e7ek deprem do\u011fruland\u0131' :
-                   result.authenticity.is_authentic === false ? ' \u26a0 \u015e\u00fcpheli tweet' : '')
-                : '';
-            showToast(`Tweet analiz edildi!${authMsg}`, 'success');
-        } catch (e) {
-            showToast(e.message, 'error');
-        }
-        setButtonLoading(btnMock, false);
-    }
-
-    btnMock?.addEventListener('click', sendMockTweet);
-    mockInput?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') sendMockTweet();
-    });
-
     // Güvenilir Hesaplar Modal
     document.getElementById('btnTrustedAccounts')?.addEventListener('click', () => {
         document.getElementById('trustedModal')?.classList.remove('hidden');
@@ -580,6 +596,21 @@ function setupEventHandlers() {
             showToast(`PDF hatası: ${e.message}`, 'error');
         }
         overlay?.classList.add('hidden');
+        setButtonLoading(btn, false);
+    });
+
+    // Telegram Rapor Gönder
+    document.getElementById('btnSendTelegram')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btnSendTelegram');
+        setButtonLoading(btn, true);
+        try {
+            const res = await fetch(`${API_BASE}/telegram/send-report`, { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Gönderim başarısız');
+            showToast(`Telegram'a gönderildi: ${data.message}`, 'success');
+        } catch (e) {
+            showToast(`Telegram hatası: ${e.message}`, 'error');
+        }
         setButtonLoading(btn, false);
     });
 }

@@ -29,3 +29,6 @@ MIN_REFRESH_INTERVAL_SEC: int = int(os.getenv("MIN_REFRESH_INTERVAL_SEC", "5"))
 
 # ─── Veritabanı ───────────────────────────────────────────
 DATABASE_PATH: str = os.getenv("DATABASE_PATH", "afet_haritasi.db")
+
+# ─── Telegram ─────────────────────────────────────────────
+TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "")

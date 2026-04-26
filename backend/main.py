@@ -24,6 +24,7 @@ from app.config import (
     TWEET_MAX_RESULTS,
     MIN_REFRESH_INTERVAL_SEC,
     DATABASE_PATH,
+    TELEGRAM_BOT_TOKEN,
 )
 from app.models import (
     HealthResponse,
@@ -40,6 +41,8 @@ from app.tweet_service import TweetService
 from app.database import Database
 from app.earthquake_service import EarthquakeService
 from app.credibility_service import CredibilityService
+from app.telegram_service import TelegramService
+from app.users import groups
 
 
 # ─── Servisler ────────────────────────────────────────────
@@ -63,6 +66,7 @@ tweet_service = TweetService(
 db = Database(db_path=DATABASE_PATH)
 earth_service = EarthquakeService(min_magnitude=2.0, cache_ttl=300)
 credibility_service = CredibilityService()
+telegram_service = TelegramService(token=TELEGRAM_BOT_TOKEN)
 
 
 # ─── Yardımcı: Trust Score Hesapla ──────────────────────
@@ -489,6 +493,159 @@ def export_full_pdf_report():
         headers={"Content-Disposition": 'attachment; filename="afet_raporu.pdf"'},
         background=None,
     )
+
+
+# ─── Telegram Rapor Gönder ────────────────────────────────
+@app.post("/telegram/send-report")
+async def telegram_send_report():
+    """
+    Veritabanındaki analizlerden WeasyPrint PDF oluşturur ve
+    users.py'deki tüm Telegram gruplarına gönderir.
+    """
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="TELEGRAM_BOT_TOKEN tanımlanmamış. .env dosyasına ekleyin.",
+        )
+
+    try:
+        from report_generator import rapor_olustur
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=f"Rapor motoru yüklenemedi: {exc}")
+
+    # Veritabanından verileri hazırla
+    results = db.get_all_analyses()
+    city_counts = db.get_city_tweet_counts()
+
+    enriched: list[dict] = []
+    for t in results:
+        te = _enrich_with_trust(
+            t,
+            author_username=t.author.username if t.author else "",
+            city_counts=city_counts,
+        )
+        enriched.append(te.model_dump())
+
+    if not enriched:
+        raise HTTPException(
+            status_code=404,
+            detail="Gönderilecek analiz verisi yok. Önce tweetleri analiz edin.",
+        )
+
+    # AI raporu
+    ai_text = ""
+    try:
+        ai_text = gemini_service.generate_crisis_report({"tweets": enriched})
+    except Exception:
+        pass
+
+    # Baz istasyonu simülasyonu
+    import math
+    import time
+
+    def _sim_bt(base: int, seed: str) -> int:
+        phase = sum(ord(c) for c in seed)
+        cycle = (2 * math.pi * (time.time() % 600)) / 600
+        return max(1, round(base * (1 + math.sin(cycle + phase * 0.7) * 0.30)))
+
+    def _city_key(city: str) -> str:
+        tr_map = str.maketrans('şğıöüçŞĞİÖÜÇ', 'sgioucSGIOUC')
+        return city.translate(tr_map).lower().replace(' ', '')
+
+    _bt_templates: dict[str, list[str]] = {
+        'hatay':         ['Antakya Merkez Rezidans', 'Hatay Devlet Hastanesi', 'Defne Ticaret Merkezi'],
+        'kahramanmaras': ['KMaraş Şehir Hastanesi',  'Merkez Konut Bloğu-7',  'Elbistan AVM'],
+        'gaziantep':     ['Şahinbey Ticaret Merkezi','Gaziantep Şehir Hastanesi','Nurdağı Sanayi Sitesi'],
+        'adiyaman':      ['Adıyaman Çarşı Pasajı',   'Besni Konutları',        'Gölbaşı Mahalle Okulu'],
+        'malatya':       ['Yeşilyurt Sitesi',         'Malatya Devlet Hastanesi','Battalgazi Ticaret Hanı'],
+        'diyarbakir':    ['Tarihi Sur Konutları',     'Büyükşehir Kampüsü',    'Bağlar İş Hanı'],
+        'adana':         ['Seyhan Rezidans',          'Adana Şehir Hastanesi', 'Yüreğir Ticaret Merkezi'],
+        'osmaniye':      ['İnönü Apartmanı',          'Osmaniye Devlet Hastanesi','Kadirli Çarşısı'],
+        'elazig':        ['Elazığ Çarşısı',           'Fırat Üniv. Yerleşkesi','Sivrice Konutları'],
+        'nigde':         ['Niğde Merkez Sitesi',      'Bor Ticaret Hanı',      'Ulukışla İst. Mah.'],
+    }
+    _default_bt = ['Şehir Merkezi Binası', 'Devlet Hastanesi', 'Ticaret Hanı']
+
+    city_count: dict[str, int] = {}
+    for t in enriched:
+        city = ((t.get('analysis') or {}).get('city') or '')
+        if city and city != 'Bilinmiyor':
+            city_count[city] = city_count.get(city, 0) + 1
+
+    baz_istasyonlari: list[dict] = []
+    for city, cnt in city_count.items():
+        key = _city_key(city)
+        tpls = _bt_templates.get(key, _default_bt)
+        for t_idx in range(3 if cnt >= 3 else 2):
+            seed_id = f"{city}_bt_{t_idx}"
+            base = 100 + (hash(seed_id) % 400) + cnt * 30
+            baz_istasyonlari.append({
+                'name': city,
+                'building': tpls[t_idx] if t_idx < len(tpls) else tpls[0],
+                'base': base,
+                'current': _sim_bt(base, seed_id),
+            })
+
+    # PDF oluştur
+    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", prefix="afetiz_tg_", delete=False)
+    tmp.close()
+
+    try:
+        rapor_olustur(
+            data={"tweets": enriched},
+            output_path=tmp.name,
+            ai_rapor=ai_text,
+            baz_istasyonlari=baz_istasyonlari,
+        )
+    except Exception as exc:
+        os.unlink(tmp.name)
+        raise HTTPException(status_code=500, detail=f"PDF üretilemedi: {exc}")
+
+    # Telegram bildirim mesajı
+    from datetime import datetime
+    now_str = datetime.now().strftime("%d.%m.%Y %H:%M")
+    kritik = sum(1 for t in enriched if (t.get('analysis') or {}).get('map_priority') == 'critical')
+    iller = len(city_count)
+    caption = (
+        f"🚨 *AfetIZ — Kriz Raporu*\n"
+        f"📅 Tarih: {now_str}\n"
+        f"📊 Analiz Edilen Tweet: {len(enriched)}\n"
+        f"🔴 Kritik Alarm: {kritik}\n"
+        f"🗺 Etkilenen İl: {iller}\n"
+        f"─────────────────────\n"
+        f"Bu rapor AfetIZ yapay zeka destekli kriz izleme platformu tarafından otomatik olarak oluşturulmuştur."
+    )
+
+    # Gruplara gönder
+    sent_count = 0
+    errors = []
+    for group in groups:
+        success = await telegram_service.send_document(
+            chat_id=group["group_id"],
+            document_path=tmp.name,
+            caption=caption,
+        )
+        if success:
+            sent_count += 1
+        else:
+            errors.append(group.get("name", str(group["group_id"])))
+
+    os.unlink(tmp.name)
+
+    if sent_count == 0:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Hiçbir gruba gönderilemedi. Hatalar: {errors}",
+        )
+
+    return {
+        "success": True,
+        "sent_to": sent_count,
+        "groups": len(groups),
+        "errors": errors,
+        "message": f"Rapor {sent_count}/{len(groups)} gruba gönderildi.",
+        "timestamp": now_str,
+    }
 
 
 if __name__ == "__main__":
