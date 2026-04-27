@@ -1,74 +1,163 @@
-# ─── Python ──────────────────────────────────────────────
+# ==============================================================================
+# AfetİZ - Kapsamlı .gitignore (Sıfır Bilgi Sızıntısı Güvenliği)
+# ==============================================================================
+# Amaç: Sıfır bilgi sızıntısı (Zero Information Leakage), veritabanı, loglar,
+# kimlik bilgileri, ortam değişkenleri ve API anahtarlarının korunması.
+# ==============================================================================
+
+# ─── 1. HASSAS BİLGİLER & KİMLİK DOĞRULAMA (CRITICAL) ─────────────────────────
+# Ortam değişkenleri ve anahtarlar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cer
+*.cert
+*.p12
+*.pfx
+secrets.json
+client_secret.json
+credentials.json
+auth.json
+oauth.json
+keys/
+certs/
+
+# ─── 2. VERİTABANLARI & BİRİKİMLER (DATABASES) ────────────────────────────────
+# SQL, NoSQL ve yerel veritabanı dosyaları
+*.db
+*.sqlite
+*.sqlite3
+*.db3
+*.s3db
+*.sl3
+*.dump
+*.sql
+afet_haritasi.db
+backend/afet_haritasi.db
+db/
+data/
+
+# ─── 3. LOG DOSYALARI (LOGS) ──────────────────────────────────────────────────
+# Sistem, uygulama ve bağımlılık logları
+*.log
+logs/
+backend/logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.pm2/
+
+# ─── 4. PYTHON BACKEND (FASTAPI vb.) ──────────────────────────────────────────
+# Derlenmiş dosyalar ve cache
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyo
 *.pyd
 .Python
+
+# Ortamlar
+.venv/
+venv/
+env/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Paketleme
 *.egg-info/
 dist/
 build/
 *.egg
 .eggs/
 
-# ─── Ortamlar ────────────────────────────────────────────
-.env
-.env.*
-!.env.example
-.venv/
-venv/
-env/
-ENV/
-
-# ─── Veritabanları ───────────────────────────────────────
-*.db
-*.sqlite
-*.sqlite3
-
-# ─── Loglar ──────────────────────────────────────────────
-*.log
-logs/
-
-# ─── Test & Coverage ─────────────────────────────────────
+# Test & Coverage
 .pytest_cache/
 .coverage
 htmlcov/
 coverage.xml
 *.coveragerc
+.tox/
+.mypy_cache/
+.ruff_cache/
 
-# ─── Node / Frontend ─────────────────────────────────────
+# ─── 5. NODE.JS FRONTEND (VITE vb.) ───────────────────────────────────────────
+# Bağımlılıklar ve derlenmiş dosyalar
 node_modules/
+frontend/node_modules/
 .pnpm-store/
-dist/
+dist-ssr/
 .next/
 out/
 .nuxt/
 .output/
+.vuepress/dist/
 
-# ─── Editör & IDE ────────────────────────────────────────
-.vscode/
+# Yerel çevresel yapılandırmalar
+*.local
+
+# ─── 6. İŞLETİM SİSTEMİ (OS) ──────────────────────────────────────────────────
+# macOS, Windows, Linux sistem dosyaları
+.DS_Store
+.DS_Store?
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+Thumbs.db
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# ─── 7. EDİTÖR & IDE ──────────────────────────────────────────────────────────
+# VS Code, IntelliJ, Fleet vb. yapılandırmalar
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
+.fleet/
 *.swp
 *.swo
+*.swn
 *~
-.DS_Store
-Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 
-# ─── Dökümanlar (içerik değil, geliştirme notları) ───────
-docs/
+# ─── 8. ÜRETİLEN DOSYALAR & RAPORLAR (GENERATED FILES) ────────────────────────
+# Uygulama tarafından çalışma anında oluşturulan dökümanlar, raporlar vb.
+*.pdf
+backend/*.pdf
+afet_raporu.pdf
+backend/afet_raporu.pdf
+reports/
+generated/
+exports/
 
-# ─── Geçici dosyalar ─────────────────────────────────────
+# ─── 9. GEÇİCİ DOSYALAR (TEMPORARY/BACKUPS) ───────────────────────────────────
 *.tmp
 *.bak
 *.orig
 .cache/
 tmp/
+temp/
 
-# ─── Jupyter ─────────────────────────────────────────────
+# ─── 10. JUPYTER NOTEBOOKS ────────────────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb
 
-# ─── Sistem ──────────────────────────────────────────────
-.DS_Store
-.AppleDouble
-.LSOverride
+# ─── 11. DOKÜMANTASYON ────────────────────────────────────────────────────────
+docs/_build/
