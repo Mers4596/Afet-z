@@ -120,8 +120,7 @@ Frontend `http://localhost:3000` adresinde açılır.
 ## Ekip
 
 **TheTrippleLoop** — HackNiğde 2026
-- **Mehmet ERSOLAK**
-- **Antigravity** — AI Kodlama Asistanı (Google DeepMind)
+**Mehmet ERSOLAK** - Backend, API
 
 ---
 
