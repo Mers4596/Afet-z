@@ -131,7 +131,7 @@ function renderApp() {
             <button class="btn btn--export btn--export-pdf" id="btnExportPDF" title="Harita, grafikler ve AI analizi ile PDF raporu oluştur">
                 <i class="fas fa-file-pdf"></i> PDF Raporu
             </button>
-            <button class="btn btn--telegram" id="btnSendTelegram" title="PDF raporunu Afetiz Telegram kanalına gönder">
+            <button class="btn btn--telegram" id="btnSendTelegram" title="CSV raporunu Afetiz Telegram kanalına gönder">
                 <i class="fab fa-telegram"></i> Telegram
             </button>
         </div>
@@ -264,10 +264,14 @@ function updateTweetFeed() {
     container.innerHTML = valid
         .slice()
         .sort((a, b) => {
-            const ta = a.analyzed_at || a.tweet_id || '';
-            const tb = b.analyzed_at || b.tweet_id || '';
-            return tb.localeCompare(ta);
+            const dateA = a.analyzed_at || '';
+            const dateB = b.analyzed_at || '';
+            if (dateA !== dateB) return dateB.localeCompare(dateA);
+            const idA = BigInt(a.tweet_id || '0');
+            const idB = BigInt(b.tweet_id || '0');
+            return idB > idA ? 1 : idB < idA ? -1 : 0;
         })
+        .reverse() // Kullanıcı isteği: Sıralanmış listeyi tersine çevir
         .slice(0, 15)
         .map(tweet => {
         const a = tweet.analysis;

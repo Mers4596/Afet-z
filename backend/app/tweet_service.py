@@ -132,7 +132,8 @@ class TweetService:
 
             if tweets.data:
                 new_tweets = []
-                for t in reversed(tweets.data):
+                # Twitter en yeni tweeti ilk sırada döndürür (T3, T2, T1)
+                for t in tweets.data:
                     tweet_data = TweetData(
                         tweet_id=str(t.id),
                         text=t.text,
@@ -140,8 +141,11 @@ class TweetService:
                         author_username=self.username
                     )
                     new_tweets.append(tweet_data)
-                    self._last_id = str(t.id)
+                    # En yeni tweet ID'sini last_id yap (since_id için)
+                    if not self._last_id or int(t.id) > int(self._last_id):
+                        self._last_id = str(t.id)
 
+                # Yeni tweetleri listenin başına ekle (en yeni en başta kalır)
                 self._cache = new_tweets + self._cache
                 self._cache = self._cache[: self.cache_limit]
 
@@ -266,10 +270,15 @@ class TweetService:
         return self._cache
 
     def get_all_cached(self) -> list[TweetData]:
-        """Hem kullanıcı hem hashtag cache'lerini birleştirip döndür."""
+        """Hem kullanıcı hem hashtag cache'lerini birleştirip, en yeni en başta (tweet_id desc) döndür."""
         seen: set[str] = set()
         result: list[TweetData] = []
-        for t in self._hashtag_cache + self._cache:
+        # Tüm cache'i birleştir
+        combined = self._hashtag_cache + self._cache
+        # Tweet ID'ye göre sırala (en yeni en başta)
+        combined.sort(key=lambda x: int(x.tweet_id), reverse=True)
+        
+        for t in combined:
             if t.tweet_id not in seen:
                 seen.add(t.tweet_id)
                 result.append(t)

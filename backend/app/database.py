@@ -118,7 +118,7 @@ class Database:
         """Tüm analiz sonuçlarını getir."""
         assert self._conn is not None
         cursor = self._conn.execute(
-            "SELECT * FROM analyzed_tweets ORDER BY analyzed_at DESC"
+            "SELECT * FROM analyzed_tweets ORDER BY analyzed_at DESC, tweet_id DESC"
         )
         results = []
         for row in cursor.fetchall():
@@ -170,7 +170,7 @@ class Database:
         """Belirli öncelik seviyesindeki tweet'leri getir."""
         assert self._conn is not None
         cursor = self._conn.execute(
-            "SELECT * FROM analyzed_tweets WHERE map_priority = ? ORDER BY analyzed_at DESC",
+            "SELECT * FROM analyzed_tweets WHERE map_priority = ? ORDER BY analyzed_at DESC, tweet_id DESC",
             (priority,),
         )
         results = []
